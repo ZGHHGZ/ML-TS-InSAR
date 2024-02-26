@@ -1,0 +1,27 @@
+## load_data.py -H to check more details and example inputs.
+
+mintpy.load.processor        = isce
+##---------for ISCE only:
+mintpy.load.metaFile         = ./reference/IW*.xml
+mintpy.load.baselineDir      = ./baselines
+##---------interferogram datasets:
+mintpy.load.unwFile          = ./merged/interferograms/*/filt_fine.unw
+mintpy.load.corFile          = ./merged/interferograms/*/filt_fine.cor
+mintpy.load.connCompFile     = ./merged/interferograms/*/filt_fine.unw.conncomp
+##---------geometry datasets:
+mintpy.load.demFile          = ./merged/geom_reference/hgt.rdr
+mintpy.load.lookupYFile      = ./merged/geom_reference/lat.rdr
+mintpy.load.lookupXFile      = ./merged/geom_reference/lon.rdr
+mintpy.load.incAngleFile     = ./merged/geom_reference/los.rdr
+mintpy.load.azAngleFile      = ./merged/geom_reference/los.rdr
+mintpy.load.shadowMaskFile   = ./merged/geom_reference/shadowMask.rdr
+mintpy.load.waterMaskFile    = None
+#mintpy.deramp                = quadratic
+
+#mintpy.reference.lalo            =35.9345,118.34427
+#mintpy.reference.maskFile      =no
+mintpy.troposphericDelay.method = height_correlation 
+#mintpy.unwrapError.method = phase_closure
+## Mintpy options
+mintpy.compute.cluster     = local  # if dask is not available, set this option to no S
+mintpy.compute.numWorker   = 8 

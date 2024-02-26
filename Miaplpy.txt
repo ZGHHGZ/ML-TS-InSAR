@@ -1,0 +1,45 @@
+################
+miaplpy.load.processor      = isce  #[isce,snap,gamma,roipac], auto for isceTops
+miaplpy.load.updateMode     = auto  #[yes / no], auto for yes, skip re-loading if HDF5 files are complete
+miaplpy.load.compression    = auto  #[gzip / lzf / no], auto for no.
+miaplpy.load.autoPath       = yes    # [yes, no] auto for no
+        
+miaplpy.load.slcFile        = ../merged/SLC/*/*.slc.full  #[path2slc_file]
+##---------for ISCE only:
+miaplpy.load.metaFile       = ../reference/IW*.xml
+miaplpy.load.baselineDir    = ../baselines
+##---------geometry datasets:
+miaplpy.load.demFile          = ../merged/geom_reference/hgt.rdr.full
+miaplpy.load.lookupYFile      = ../merged/geom_reference/lat.rdr.full
+miaplpy.load.lookupXFile      = ../merged/geom_reference/lon.rdr.full
+miaplpy.load.incAngleFile     = ../merged/geom_reference/los.rdr.full
+miaplpy.load.azAngleFile      = ../merged/geom_reference/los.rdr.full
+miaplpy.load.shadowMaskFile   = ../merged/geom_reference/shadowMask.rdr.full
+miaplpy.load.waterMaskFile    = None
+##---------interferogram datasets:
+miaplpy.load.unwFile        = ./inverted/interferograms_sequential_3/*/*fine*.unw
+miaplpy.load.corFile        = ./inverted/interferograms_sequential_3/*/*fine*.cor
+miaplpy.load.connCompFile   = ./inverted/interferograms_sequential_3/*/*.unw.conncomp
+miaplpy.timeseries.minTempCoh             =0        
+##---------subset (optional):
+## if both yx and lalo are specified, use lalo option unless a) no lookup file AND b) dataset is in radar coord
+#miaplpy.subset.lalo         = 36.712:36.738,118.08:118.113
+#miaplpy.subset.yx           =0:200,0:200
+# MiaplPy options 
+miaplpy.multiprocessing.numProcessor   = 8
+miaplpy.interferograms.networkType             = sequential
+miaplpy.interferograms.connNum                 = 3
+miaplpy.interferograms.delaunayBaselineRatio   = 6
+miaplpy.inversion.rangeWindow              = 10   # range window size for searching SHPs, auto for 15
+miaplpy.inversion.azimuthWindow            = 5   # azimuth window size for searching SHPs, auto for 15
+miaplpy.inversion.PsNumShp                 = 5
+miaplpy.inversion.phaseLinkingMethod       = sequential_EMI
+miaplpy.inversion.shpTest                  = ks
+## Mintpy options
+mintpy.compute.cluster     = local  # if dask is not available, set this option to no S
+mintpy.compute.numWorker   = 8 
+
+#mintpy.reference.yx=35,325
+#mintpy.reference.lalo = 35.472982,116.5137434
+mintpy.troposphericDelay.method = height_correlation
+mintpy.reference.minCoherence  =0.85
