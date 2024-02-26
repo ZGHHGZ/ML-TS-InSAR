@@ -111,7 +111,7 @@ else:
     insar_roi = get_region_of_interest(ref_footprint, sec_footprint, is_ascending=is_ascending)
  
     ###################################################################################################
-    
+    ###################################################################################################
     roi=" -b '" + str(insar_roi[1]) + " " + str(insar_roi[3]) + " " + str(insar_roi[0]) + " " + str(insar_roi[2]) + "'"
     print("burst的选择区域："+roi)
     os.chdir('../')
@@ -222,11 +222,12 @@ for i in range(len(run)):
     if runstep == run[1]:
         data = numpy.loadtxt('./data/stack.txt',dtype=str,delimiter=',')
         IW = str(data[0][1])
-        ##########
+        #研究区域裁剪设置#################################################################################################
+        #↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
         os.system("python ../code/crop_rdr.py -b '37.643509 37.664975 120.274337 120.311787' -lat ./geom_reference/" +IW+ "/lat_01.rdr -lon ./geom_reference/" +IW+ "/lon_01.rdr > ./geom_reference/crop.txt")
         lines = open('./geom_reference/crop.txt').readlines()
         line=str(lines[0][:-1])
-        ##########
+        ################################################################################################################
         path= "./geom_reference/III"
         if os.path.exists(path):
             os.system('rm -rf ./geom_reference/III')
