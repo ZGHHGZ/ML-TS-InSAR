@@ -56,8 +56,8 @@ download_aux_cal(aux_cal_dir)
 
 orbit_dir.mkdir(exist_ok=True, parents=True)
 def orbit_download(data):
-    esa_username='2336164866@QQ.COM'
-    esa_password='zgh10788701HGZ!'
+    esa_username='XXXXXXXXXXX'         ############-------------------------------------------esa_username
+    esa_password='XXXXXXXXXXX'         ############-------------------------------------------esa_password
     scene_name = data[0]
     downloadSentinelOrbitFile(scene_name, str(orbit_dir), esa_credentials=(esa_username, esa_password))
 ################################################################################
