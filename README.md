@@ -3,7 +3,7 @@ Mini Long Time-Series InSAR
 
 小区域、长时序InSAR处理包
 
-本软件包基于ISCE、Mintpy、MiaplPy开发。
+本软件包基于ISCE、MintPy、MiaplPy开发。
 
 修改了ISCE的stack处理流程，能够仅下载单个burst进行处理，且实现了先裁剪后处理的功能。
 
