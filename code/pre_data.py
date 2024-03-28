@@ -32,7 +32,7 @@ def imgae_download(data):
         #print("create————————————kml")
         cord_list=str(footprint)[1:-1].split(', ')
         print(cord_list)
-        cord_kml=str(cord_list[0])+','+str(cord_list[1])+' '+str(cord_list[2])+','+str(cord_list[1])+' '+str(cord_list[2])+','+str(cord_list[3])+' '+str(cord_list[1])+','+str(cord_list[2])
+        cord_kml=str(cord_list[0])+','+str(cord_list[1])+' '+str(cord_list[2])+','+str(cord_list[1])+' '+str(cord_list[2])+','+str(cord_list[3])+' '+str(cord_list[0])+','+str(cord_list[3])
         path = "./" + str(params.granule) + '.SAFE/preview'
         if not os.path.exists(path):
             os.mkdir(path)
