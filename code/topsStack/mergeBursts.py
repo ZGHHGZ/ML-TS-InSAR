@@ -101,15 +101,16 @@ def mergeBurstsVirtual(frame, referenceFrame, fileList, outfile, validOnly=True)
     leftSwath = min(refSwaths, key = lambda x: x.nearRange)
     rightSwath = max(refSwaths, key = lambda x: x.farRange)
 
-
     totalWidth  = int(np.round((rightSwath.farRange - leftSwath.nearRange)/leftSwath.dr + 1))
     totalLength = int(np.round((botSwath.sensingStop - topSwath.sensingStart).total_seconds()/topSwath.dt + 1 ))
-    size = np.loadtxt('./geom_reference/crop.txt',dtype=str,delimiter=' ')
-    width=size[4]
-    height=size[5]
-    totalWidth  = width
-    totalLength = height
-
+    try:
+        size = np.loadtxt('./geom_reference/crop.txt',dtype=str,delimiter=' ')
+        width=size[4]
+        height=size[5]
+        totalWidth  = width
+        totalLength = height
+    except:
+        print("one burst")
     ###Determine number of bands and type
     img  = isceobj.createImage()
     img.load( fileList[0][0] + '.xml')
