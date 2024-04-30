@@ -109,8 +109,6 @@ else:
     ref_footprint = get_isce2_burst_bbox(ref_params)
     sec_footprint = get_isce2_burst_bbox(sec_params)
     insar_roi = get_region_of_interest(ref_footprint, sec_footprint, is_ascending=is_ascending)
- 
-    ###################################################################################################
     ###################################################################################################
     roi=" -b '" + str(insar_roi[1]) + " " + str(insar_roi[3]) + " " + str(insar_roi[0]) + " " + str(insar_roi[2]) + "'"
     print("burst的选择区域："+roi)
@@ -143,7 +141,6 @@ run.append('run_04_fullBurst_geo2rdr')    #4
 run.append('run_05_fullBurst_resample')    #5
 run.append('run_06_extract_stack_valid_region')    #6
 run.append('run_07_merge_reference_secondary_slc')    #7
-#run.append('run_08_grid_baseline')    #8
 run.append('run_08_generate_burst_igram')    #8
 run.append('run_09_merge_burst_igram')    #9
 run.append('run_10_filter_coherence')    #10
@@ -216,7 +213,7 @@ for i in range(len(run)):
                 open(pairlist[i],'w').writelines(lines)
  
     ##############################################################################
-  
+    #↓裁剪处理↓，若处理整个burst，后续直至结尾代码需注释
     ##############################################################################
         
     if runstep == run[1]:
