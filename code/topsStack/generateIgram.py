@@ -58,10 +58,14 @@ def multiply(referencename, secondaryname, outname, rngname1, rngname2, fact, re
 
     width = referenceImg.getWidth()
     length = referenceImg.getLength()
-    size = np.loadtxt('./geom_reference/crop.txt',dtype=str,delimiter=' ')
-    width=int(size[4])
-    length=int(size[5])
- 
+    ###############################修改###########################
+    try:
+        size = np.loadtxt('./geom_reference/crop.txt',dtype=str,delimiter=' ')
+        width=int(size[4])
+        length=int(size[5])
+    except:
+        print('all burst')
+    #################################################################
     ds = gdal.Open(referencename + '.vrt', gdal.GA_ReadOnly)
     reference = ds.GetRasterBand(1).ReadAsArray()
     ds = None
@@ -94,14 +98,17 @@ def multiply(referencename, secondaryname, outname, rngname1, rngname2, fact, re
     lastS = referenceFrame.firstValidSample + referenceFrame.numValidSamples -1
     firstL = referenceFrame.firstValidLine
     lastL = referenceFrame.firstValidLine + referenceFrame.numValidLines - 1
-    #####################################################################################################
-    size = np.loadtxt('./geom_reference/crop.txt',dtype=str,delimiter=' ')
-    width=size[4]
-    height=size[5]
-    firstS = 0
-    lastS = int(width)-1
-    firstL = 0
-    lastL = int(height)-1
+    #######################################修改##############################################################
+    try:
+        size = np.loadtxt('./geom_reference/crop.txt',dtype=str,delimiter=' ')
+        width=size[4]
+        height=size[5]
+        firstS = 0
+        lastS = int(width)-1
+        firstL = 0
+        lastL = int(height)-1
+    except:
+        print("full burst")
     #####################################################################################################
     for kk in range(firstL,lastL + 1):
         ifg[kk,firstS:lastS + 1] = reference[kk,firstS:lastS + 1] * np.conj(secondary[kk,firstS:lastS + 1])
