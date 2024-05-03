@@ -120,7 +120,6 @@ def writeVRT(infile, latFile, lonFile):
             meta.tail = '\n'
             meta.text = '\n    '
 
-
             rdict = { 'Y_DATASET' : os.path.relpath(latFile , os.path.dirname(infile)),
                       'X_DATASET' :  os.path.relpath(lonFile , os.path.dirname(infile)),
                       'X_BAND' : "1",
@@ -150,11 +149,11 @@ def runGeo(inps):
     if not inps.isAlexGrid:
         WSEN = str(inps.bbox[2]) + ' ' + str(inps.bbox[0]) + ' ' + str(inps.bbox[3]) + ' ' + str(inps.bbox[1])
         #latFile, lonFile = prepare_lat_lon(inps)
-        latFile = 'tempLAT.vrt'
-        lonFile = 'tempLON.vrt'
+        #path=
+        latFile = './tempLAT.vrt'
+        lonFile = './tempLON.vrt'
         getBound(latFile,float(inps.bbox[0]),float(inps.bbox[1]),'lat')
         getBound(lonFile,float(inps.bbox[2]),float(inps.bbox[3]),'lon')
-        
         for infile in inps.prodlist:
             infile = os.path.abspath(infile)
             print ('geocoding ' + infile)
@@ -163,7 +162,15 @@ def runGeo(inps):
             #os.system(cmd)
             writeVRT(infile, latFile, lonFile)
             if inps.istiff:
-                cmd = 'gdalwarp -of GTiff -t_srs epsg:4326 -geoloc  -te '+ WSEN + ' -tr ' + str(inps.latStep) + ' ' + str(inps.lonStep) + ' -srcnodata 0 -dstnodata 0 ' + ' -r ' + inps.resamplingMethod + ' ' + infile +'.vrt '+ outFile
+            ###########################################################################
+                date_dir3=outFile.split('/')[-3]
+                if date_dir3=="interferograms":
+                    date_dir=outFile.split('/')[-2]
+                    print(infile)
+                    cmd ='cd interferograms/'+str(date_dir)+' && gdalwarp -of GTiff -t_srs epsg:4326 -geoloc  -te '+ WSEN + ' -tr ' + str(inps.latStep) + ' ' + str(inps.lonStep) + ' -srcnodata 0 -dstnodata 0 ' + ' -r ' + inps.resamplingMethod + ' ' + infile +'.vrt '+ outFile
+                else:
+                    print(outFile)
+                    cmd ='cd ./geom_reference && gdalwarp -of GTiff -t_srs epsg:4326 -geoloc  -te '+ WSEN + ' -tr ' + str(inps.latStep) + ' ' + str(inps.lonStep) + ' -srcnodata 0 -dstnodata 0 ' + ' -r ' + inps.resamplingMethod + ' ' + infile +'.vrt '+ outFile
             else:
                 cmd = 'gdalwarp -of ENVI -geoloc  -te '+ WSEN + ' -tr ' + str(inps.latStep) + ' ' + str(inps.lonStep) + ' -srcnodata 0 -dstnodata 0 ' + ' -r ' + inps.resamplingMethod + ' ' + infile +'.vrt '+ outFile
             print (cmd)
@@ -189,7 +196,6 @@ def runGeo(inps):
                 os.system(cmd1)
                 print(str(outFile)+"生成tiff")
                 
-
             write_xml(outFile)
 
 
@@ -207,7 +213,6 @@ def runGeo(inps):
 
         for infile in inps.prodlist:
             print('geocoding: ' + infile)
-
             writeVRT(infile, latFile, lonFile)
 
             cmd = 'gdalwarp -of ' + outformat + ' -t_srs ' + inps.outproj + ' -geoloc -te ' + WSEN + ' -tr ' + str(inps.lonStep) + ' ' + str(inps.latStep) + ' -srcnodata 0 -dstnodata 0 -r ' + inps.resamplingMethod + ' ' + infile + '.vrt ' + infile+'ext'
@@ -226,7 +231,7 @@ def getSize(infile):
     return b.XSize, b.YSize
 
 def getBound(infile,minval,maxval,latlon): #added by Minyan Zhong
-    
+
     ds=gdal.Open(infile)
     b=ds.GetRasterBand(1)
     data=b.ReadAsArray()
