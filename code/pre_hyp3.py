@@ -1,3 +1,4 @@
+#########在merged文件夹下运行，用于TIFF转HYP3格式#########
 import os
 import glob
 
