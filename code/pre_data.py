@@ -27,25 +27,27 @@ def imgae_download(data):
     swath_number = data[1]
     burst_number = data[2]
     params = get_burst_params(scene_name ,swath_number, int(burst_number))
-    metadata = download_bursts([params])
-    if not os.path.exists("./" + str(params.granule) + '.SAFE/preview/map-overlay.kml'):
-        footprint = get_isce2_burst_bbox(params)
-        footprint=footprint.buffer(0.2).bounds
-        #print("create————————————kml")
-        cord_list=str(footprint)[1:-1].split(', ')
-        print(cord_list)
-        cord_kml=str(cord_list[0])+','+str(cord_list[1])+' '+str(cord_list[2])+','+str(cord_list[1])+' '+str(cord_list[2])+','+str(cord_list[3])+' '+str(cord_list[0])+','+str(cord_list[3])
-        path = "./" + str(params.granule) + '.SAFE/preview'
-        if not os.path.exists(path):
-            os.mkdir(path)
-        with open('../../code/map-overlay.txt', 'r') as f:
-            kml=f.read()
-            f.close()
-        kml = kml.replace('          <coordinates>', '          <coordinates>' + cord_kml)  # 在第一个</coordinates>前插入
-        with open(path+'/map-overlay.kml', 'w') as f:
-            f.write(kml)
-        #print(str(params.granule)+"------kml创建成功")
-
+    if not os.path.exists(f'./{params.granule}.SAFE'):
+        metadata = download_bursts([params])
+        if not os.path.exists("./" + str(params.granule) + '.SAFE/preview/map-overlay.kml'):
+            footprint = get_isce2_burst_bbox(params)
+            footprint=footprint.buffer(0.2).bounds
+            #print("create————————————kml")
+            cord_list=str(footprint)[1:-1].split(', ')
+            print(cord_list)
+            cord_kml=str(cord_list[0])+','+str(cord_list[1])+' '+str(cord_list[2])+','+str(cord_list[1])+' '+str(cord_list[2])+','+str(cord_list[3])+' '+str(cord_list[0])+','+str(cord_list[3])
+            path = "./" + str(params.granule) + '.SAFE/preview'
+            if not os.path.exists(path):
+                os.mkdir(path)
+            with open('../../code/map-overlay.txt', 'r') as f:
+                kml=f.read()
+                f.close()
+            kml = kml.replace('          <coordinates>', '          <coordinates>' + cord_kml)  # 在第一个</coordinates>前插入
+            with open(path+'/map-overlay.kml', 'w') as f:
+                f.write(kml)
+            #print(str(params.granule)+"------kml创建成功")
+    else:
+        print("skip: " + str(params.granule))
 ################################################################################
 pool = multiprocessing.Pool(8)
 results = pool.map(imgae_download, data)
