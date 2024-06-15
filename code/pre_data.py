@@ -50,7 +50,7 @@ def imgae_download(data):
     else:
         print("skip: " + str(params.granule))
 ################################################################################
-pool = multiprocessing.Pool(8)
+pool = multiprocessing.Pool(3)
 results = pool.map(imgae_download, data)
 pool.close()
 pool.join()
