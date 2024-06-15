@@ -65,7 +65,7 @@ def orbit_download(data):
     esa_password='XXXXXXXXXXX'         ############-------------------------------------------esa_password
     scene_name = data[0]
     downloadSentinelOrbitFile(scene_name, str(orbit_dir), esa_credentials=(esa_username, esa_password))
-    print('orbit: 'data[0],)
+    print('orbit: ',data[0])
 ################################################################################
 
 pool = multiprocessing.Pool(3)
