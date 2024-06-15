@@ -45,7 +45,8 @@ def imgae_download(data):
             kml = kml.replace('          <coordinates>', '          <coordinates>' + cord_kml)  # 在第一个</coordinates>前插入
             with open(path+'/map-overlay.kml', 'w') as f:
                 f.write(kml)
-            print(str(params.granule)+"------kml创建成功")
+            #print(str(params.granule)+"------kml创建成功")
+            print("image: " + str(params.granule))
     else:
         print("skip: " + str(params.granule))
 ################################################################################
@@ -64,7 +65,7 @@ def orbit_download(data):
     esa_password='XXXXXXXXXXX'         ############-------------------------------------------esa_password
     scene_name = data[0]
     downloadSentinelOrbitFile(scene_name, str(orbit_dir), esa_credentials=(esa_username, esa_password))
-    print(data[0],'  orbit')
+    print('orbit: 'data[0],)
 ################################################################################
 
 pool = multiprocessing.Pool(3)
