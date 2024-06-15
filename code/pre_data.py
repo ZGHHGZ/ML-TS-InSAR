@@ -67,7 +67,7 @@ def orbit_download(data):
     print(data[0],'  orbit')
 ################################################################################
 
-pool = multiprocessing.Pool(8)
+pool = multiprocessing.Pool(3)
 results = pool.map(orbit_download, data)
 pool.close()
 pool.join()
