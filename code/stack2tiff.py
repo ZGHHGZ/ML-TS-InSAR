@@ -117,13 +117,12 @@ lat = './geom_reference/lat.tif'
 lon = './geom_reference/lon.tif'
 lat_num = gdal2numpy.GDAL2Numpy(lat)[0]
 lon_num = gdal2numpy.GDAL2Numpy(lon)[0]
-lat_list=[lat_num[0][-1],lat_num[-1][0],lat_num[-1][-1],lat_num[0][0]]
-lon_list=[lon_num[0][-1],lon_num[-1][0],lon_num[-1][-1],lon_num[0][0]]
+
 #####±180度经度处可能出现问题
-lat_min=min(lat_list)
-lat_max=max(lat_list)
-lon_min=min(lon_list)
-lon_max=max(lon_list)
+lat_min=np.nanmin(lat_num)
+lat_max=np.nanmax(lat_num)
+lon_min=np.nanmin(lon_num)
+lon_max=np.nanmax(lon_num)
 box="'"+str(lat_min-0.001)+" "+str(lat_max+0.001)+" "+str(lon_min-0.001)+" "+str(lon_max+0.001)+"'"
 print(box)
 
