@@ -12,7 +12,6 @@ from pathlib import Path
 from hyp3lib.get_orb import downloadSentinelOrbitFile
 from burst import download_bursts, get_burst_params, get_isce2_burst_bbox, get_region_of_interest
 from hyp3_isce2.dem import download_dem_for_isce2
-#from hyp3_isce2.s1_auxcal import download_aux_cal
 from s1_orbits import fetch_for_scene
 import warnings
 import multiprocessing
@@ -62,10 +61,7 @@ download_aux_cal(aux_cal_dir)
 
 orbit_dir.mkdir(exist_ok=True, parents=True)
 def orbit_download(data):
-    #esa_username='XXXXXXXXXXX'         ############-------------------------------------------esa_username
-    #esa_password='XXXXXXXXXXX'         ############-------------------------------------------esa_password
     scene_name = data[0]
-    #downloadSentinelOrbitFile(scene_name, str(orbit_dir), esa_credentials=(esa_username, esa_password))
     fetch_for_scene(scene_name, str(orbit_dir))
     print('orbit: ',data[0])
 ################################################################################
