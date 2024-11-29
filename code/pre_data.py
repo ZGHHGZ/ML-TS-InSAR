@@ -11,6 +11,7 @@ import numpy
 from pathlib import Path
 from hyp3lib.get_orb import downloadSentinelOrbitFile
 from burst import download_bursts, get_burst_params, get_isce2_burst_bbox, get_region_of_interest
+from hyp3_isce2.s1_auxcal import download_aux_cal
 from hyp3_isce2.dem import download_dem_for_isce2
 from s1_orbits import fetch_for_scene
 import warnings
@@ -56,7 +57,8 @@ pool.close()
 pool.join()
 ################################################################################
 
-#轨道数据下载    
+#轨道数据下载
+download_aux_cal(aux_cal_dir)
 orbit_dir.mkdir(exist_ok=True, parents=True)
 def orbit_download(data):
     scene_name = data[0]
