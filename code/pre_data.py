@@ -57,8 +57,6 @@ pool.join()
 ################################################################################
 
 #轨道数据下载    
-download_aux_cal(aux_cal_dir)
-
 orbit_dir.mkdir(exist_ok=True, parents=True)
 def orbit_download(data):
     scene_name = data[0]
