@@ -21,8 +21,8 @@ DS-InSAR：单burst数据下载→裁剪→配准→相位优化→干涉→解�
 
 #####################################################################################
 <center class="half">
-<img src=https://github.com/ZGHHGZ/Single-Burst-Processing-Flow/blob/main/as.svg width=400/>
-<img src=https://github.com/ZGHHGZ/Single-Burst-Processing-Flow/blob/main/des.svg width=400/>
+<img src=https://github.com/ZGHHGZ/Single-Burst-Processing-Flow/blob/main/as.svg width=400 style="display: inline-block;"/>
+<img src=https://github.com/ZGHHGZ/Single-Burst-Processing-Flow/blob/main/des.svg width=400 style="display: inline-block;"/>
 </center>
 
 
