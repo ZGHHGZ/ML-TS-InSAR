@@ -79,7 +79,7 @@ burst_number = data[0][2]
 params = get_burst_params(scene_name ,swath_number, int(burst_number))    
 dem_roi = get_isce2_burst_bbox(params).bounds
 print(dem_roi)
-dem_path = download_dem_for_isce2(dem_roi,pixel_size=30.0, dem_path=dem_dir, buffer=0.2)
+dem_path = download_dem_for_isce2(dem_roi,pixel_size=30.0, dem_path=dem_dir)
 
 
 #*****************************************************************************#
@@ -272,5 +272,6 @@ for i in range(len(run)):
                 print(lines[i+1])
                 lines[i+1]='                    <value>'+width+'</value>\n'
         open('reference/'+IW+'.xml','w').writelines(lines)
+
 
 
