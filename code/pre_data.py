@@ -132,7 +132,7 @@ else:
     lines = open('./configs/config_reference').readlines()
     open('./configs/config_reference0','w').writelines(lines[0:13])
     open('./configs/config_reference','w').writelines(lines[0:4] + lines[16:])
-    open('./configs/run_00_unpack_topo_reference','w').writelines(str(line))
+    #open('./configs/run_00_unpack_topo_reference','w').writelines(str(line))
     ######删除主影像合并到merged的重复命令
     line_merged = open('./run_files/run_07_merge_reference_secondary_slc').readlines()
     open('./run_files/run_07_merge_reference_secondary_slc','w').writelines(line_merged[1:])
@@ -274,6 +274,7 @@ for i in range(len(run)):
                 print(lines[i+1])
                 lines[i+1]='                    <value>'+width+'</value>\n'
         open('reference/'+IW+'.xml','w').writelines(lines)
+
 
 
 
