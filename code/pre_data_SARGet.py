@@ -13,6 +13,9 @@ from pathlib import Path
 from osgeo import gdal
 import glob
 
+
+
+
 #####读取路径下的pre_parameter.txt文件，获取各参数、
 lat1=''
 lat2=''
@@ -27,13 +30,13 @@ with open(pre_parameter_path, 'r') as f:
         if line.startswith('运行模式：'):
             mode = line.split('：')[1].strip()
         elif line.startswith('起始经度：'):
-            lat1= line.split('：')[1].strip()
-        elif line.startswith('结束经度：'):
-            lat2= line.split('：')[1].strip()
-        elif line.startswith('起始纬度：'):
             lon1= line.split('：')[1].strip()
-        elif line.startswith('结束纬度：'):
+        elif line.startswith('结束经度：'):
             lon2= line.split('：')[1].strip()
+        elif line.startswith('起始纬度：'):
+            lat1= line.split('：')[1].strip()
+        elif line.startswith('结束纬度：'):
+            lat2= line.split('：')[1].strip()
         elif line.startswith('方位向多视数：'):
             num_azimuth= line.split('：')[1].strip()
         elif  line.startswith('距离向多视数：'):
@@ -68,6 +71,7 @@ def fix_image_xml(xml_path: str) -> None:
 
 dem_name="./dem/dem.tif"
 dem_path = Path('./dem/full_res.dem.wgs84')
+
 ####dem_path绝对路径
 dem_path=dem_path.resolve()
 gdal.Translate(str(dem_path), dem_name, format='ISCE')
@@ -166,7 +170,7 @@ for i in range(len(run)):
 
             # 研究区域裁剪设置#################################################################################################
             # ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-            os.system("python ../code/crop_rdr.py -b '+lat1+" "+lat2+" "+lon1+" "+lon2+' -lat ./geom_reference/" + IW + "/lat_01.rdr -lon ./geom_reference/" + IW + "/lon_01.rdr > ./geom_reference/crop.txt")
+            os.system("python ../code/crop_rdr.py -b '"+lat1+" "+lat2+" "+lon1+" "+lon2+"' -lat ./geom_reference/" + IW + "/lat_01.rdr -lon ./geom_reference/" + IW + "/lon_01.rdr > ./geom_reference/crop.txt")
             lines = open('./geom_reference/crop.txt').readlines()
             line = str(lines[0][:-1])
             ################################################################################################################
