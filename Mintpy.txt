@@ -20,7 +20,9 @@ mintpy.load.waterMaskFile    = None
 
 #mintpy.reference.lalo            =35.9345,118.34427
 #mintpy.reference.maskFile      =no
-mintpy.troposphericDelay.method = height_correlation 
+mintpy.reference.date =no
+mintpy.troposphericDelay.method = no
+#height_correlation 
 #mintpy.unwrapError.method = phase_closure
 ## Mintpy options
 mintpy.compute.cluster     = local  # if dask is not available, set this option to no S
