@@ -38,7 +38,7 @@ miaplpy.inversion.shpTest                  = ks
 ## Mintpy options
 mintpy.compute.cluster     = local  # if dask is not available, set this option to no S
 mintpy.compute.numWorker   = 8 
-
+mintpy.reference.date =no
 #mintpy.reference.yx=35,325
 #mintpy.reference.lalo = 35.472982,116.5137434
 mintpy.troposphericDelay.method = height_correlation
