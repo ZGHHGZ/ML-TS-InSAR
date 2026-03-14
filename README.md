@@ -49,7 +49,7 @@ SARGet软件参考链接：
 - 时间范围：2022年1月1日至2026年3月5日；  
 - 筛选结果：共95景影像。  
 
-<center>图1 筛选数据结果</center>  
+  
 
 将95景影像下载至自定义空文件夹，本案例下载路径为：  
 `C:\InSAR_process\S1_process`  
@@ -66,7 +66,7 @@ SARGet软件参考链接：
 
 > 注意：安装ISCE2后，需手动进入conda环境下的ISCE2包路径，将`contrib`文件夹复制到对应位置（`contrib`文件夹来源：<https://github.com/isce-framework/isce2>）。  
 
-<center>图2 contrib文件夹</center>  
+
 
 ### 2.2 数据处理
 ISCE2处理Sentinel-1数据的最小单位为Burst，默认流程会产生大量冗余数据；ML-TS-InSAR支持单Burst自定义裁剪，仅处理研究区范围内数据，大幅提升效率、降低存储占用。  
@@ -80,7 +80,7 @@ ML-TS-InSAR链接：<https://github.com/ZGHHGZ/ML-TS-InSAR>
    - `code`文件夹路径（本案例）：`C:\InSAR_process\`  
 2. 将ML-TS-InSAR内的`pre_parameter.txt`文件放入SARGet下载文件夹内，并按需求设定处理参数。  
 
-<center>图3 处理参数设定</center>  
+ 
 
 #### 2.2.2 命令行执行
 1. 打开WSL命令行窗口，进入SARGet下载路径的WSL映射目录：  
