@@ -84,9 +84,10 @@ ML-TS-InSAR链接：<https://github.com/ZGHHGZ/ML-TS-InSAR>
 
 #### 2.2.2 命令行执行
 1. 打开WSL命令行窗口，进入SARGet下载路径的WSL映射目录：  
-   案例Windows路径：`C:\InSAR_process\S1_process`  
+   案例Windows路径：`C:\InSAR_process\S1_process`
+   
    对应WSL路径：`/mnt/c/InSAR_process/S1_process`  
 
-2. 执行时序预处理命令：  
+3. 执行时序预处理命令：  
    ```bash
    python ../code/pre_data_SARget.py
