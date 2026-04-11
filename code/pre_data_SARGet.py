@@ -14,8 +14,18 @@ from osgeo import gdal
 import glob
 
 
+def print_author_info():
+    print("==============================================")
+    print("Author: Guanghui Zhang")
+    print("Institution: Shandong University of Science and Technology (SDUST)")
+    print("Email: 2336164866@qq.com")
+    print("Create Time: 2024")
+    print("Description: Efficient Sentinel-1 Coregistration, Interferometry and Phase Unwrapping Pipeline")
+    print("==============================================")
+    time.sleep(3)
 
 
+print_author_info()
 #####读取路径下的pre_parameter.txt文件，获取各参数、
 lat1=''
 lat2=''
