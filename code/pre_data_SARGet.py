@@ -12,6 +12,7 @@ import numpy
 from pathlib import Path
 from osgeo import gdal
 import glob
+import time
 
 
 def print_author_info():
