@@ -224,6 +224,9 @@ for i in range(len(run)):
                 if lines[i][:-1] == '                <property name="numberoflines">':
                     print(lines[i + 1])
                     lines[i + 1] = '                    <value>' + height + '</value>\n'
+                if lines[i][:-1] == '                <property name="numberofvalidlines">':
+                    print(lines[i + 1])
+                    lines[i + 1] = '                    <value>' + height + '</value>\n'
                 if lines[i][:-1] == '                <property name="numberofsamples">':
                     print(lines[i + 1])
                     lines[i + 1] = '                    <value>' + width + '</value>\n'
