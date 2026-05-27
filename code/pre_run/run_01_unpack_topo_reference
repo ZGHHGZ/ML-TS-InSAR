@@ -1,0 +1,1 @@
+python ../code/topsStack/SentinelWrapper.py -c ./pre_run/config_reference

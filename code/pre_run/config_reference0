@@ -1,0 +1,12 @@
+[Common]
+##########################
+##########################
+[Function-1]
+Sentinel1_TOPS : 
+dirname : xxx
+swaths : 1 2 3
+orbitdir : ./orbits
+outdir : ./reference
+auxdir : ./aux_cal
+pol : vv
+##########################

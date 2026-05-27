@@ -1,0 +1,10 @@
+[Common]
+##########################
+##########################
+[Function-1]
+topo : 
+reference : ./reference
+dem : ./dem/full_res.dem.wgs84
+geom_referenceDir : ./geom_reference
+numProcess : 8
+##########################
