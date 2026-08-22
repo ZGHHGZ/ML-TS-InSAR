@@ -21,7 +21,7 @@ def print_author_info():
     print("Author: Guanghui Zhang")
     print("Institution: Shandong University of Science and Technology (SDUST)")
     print("Email: 2336164866@qq.com")
-    print("Create Time: 2024")
+    print("Create Time: 2026")
     print("Description: Efficient Sentinel-1 Coregistration, Interferometry and Phase Unwrapping Pipeline (Full Burst, No Crop)")
     print("==============================================")
     time.sleep(3)
