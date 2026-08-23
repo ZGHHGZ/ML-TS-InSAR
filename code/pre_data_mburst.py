@@ -1,9 +1,3 @@
-######用于SARget/burst2safe4inSAR下载数据后，进行isce处理的预处理脚本，在SARget下载路径下运行
-######多burst版本：对 geom_reference 下所有 IW* 子目录（每个 burst）均执行地理范围裁剪，
-######同步裁剪 reference/IW*/burst_*.slc.vrt 到对应窗口，并更新 reference/IWn.xml 中每个 burst
-######的尺寸、sensingStart/sensingStop/burstStartUTC/burstStopUTC/startingRange 信息，
-######保证后续 geo2rdr、resample、merge 等步骤在裁剪后的参考网格上运行。
-
 # *****************************************************************************#
 # *****************************************************************************#
 ########################      isce process      ###############################
