@@ -163,11 +163,14 @@ def main(iargs=None):
 
 
         ####Indices w.r.t reference
-        burstoffset, minBurst, maxBurst = reference.getCommonBurstLimits(secondary)
+        burstoffset, minBurst, maxBurst = ut.getCommonBurstLimits(
+            reference, secondary)
         secondaryBurstStart = minBurst +  burstoffset
         secondaryBurstEnd = maxBurst
 
-        relShifts = ut.getRelativeShifts(reference, secondary, minBurst, maxBurst, secondaryBurstStart)
+        relShifts = ut.getRelativeShiftsFromReferenceNativeGrid(
+            reference, secondary, minBurst, maxBurst,
+            secondaryBurstStart, swath)
         print('Shifts: ', relShifts)
         if inps.overlap:
             maxBurst = maxBurst - 1 ###For overlaps
@@ -277,12 +280,8 @@ def main(iargs=None):
                 rdict['doppPoly'] = dpoly
 
                 outimg = resampSecondary(topBurst, secBurst, rdict, outname, (not inps.noflat))
-                minAz, maxAz, minRg, maxRg = ut.getValidLines(secBurst, rdict, outname,
-                    misreg_az = misreg_az - offset, misreg_rng = misreg_rg)
-
-
                 copyBurst = copy.deepcopy(topBurst)
-                ut.adjustValidSampleLine_V2(copyBurst, secBurst, minAz=minAz, maxAz=maxAz, minRng=minRg, maxRng=maxRg)
+                ut.adjustValidRegionFromOffsets(copyBurst, secBurst, rdict)
                 copyBurst.image.filename = outimg.filename
                 print('After: ', copyBurst.firstValidLine, copyBurst.numValidLines)
                 topCoreg.bursts.append(copyBurst)
