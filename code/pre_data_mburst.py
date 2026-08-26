@@ -1039,12 +1039,18 @@ for i in range(len(run)):
     if mode=="SLC":
         # SLC 模式只跑到 merge_reference_secondary_slc（含）为止
         if 'merge_reference_secondary_slc' in runstep:
-            os.system('python ../code/topsStack/run.py -i ./run_files/' + str(runstep) + ' -p '+str(flow_mp))
+            subprocess.run([sys.executable, '../code/topsStack/run.py',
+                            '-i', './run_files/' + str(runstep),
+                            '-p', str(flow_mp)], check=True)
             break
         else:
-            os.system('python ../code/topsStack/run.py -i ./run_files/' + str(runstep) + ' -p '+str(flow_mp))
+            subprocess.run([sys.executable, '../code/topsStack/run.py',
+                            '-i', './run_files/' + str(runstep),
+                            '-p', str(flow_mp)], check=True)
     else:
-        os.system('python ../code/topsStack/run.py -i ./run_files/' + str(runstep) + ' -p '+str(flow_mp))
+        subprocess.run([sys.executable, '../code/topsStack/run.py',
+                        '-i', './run_files/' + str(runstep),
+                        '-p', str(flow_mp)], check=True)
 
     ##############################################################################
     # 更改干涉处理中主影像数据路径
