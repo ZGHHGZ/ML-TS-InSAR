@@ -45,41 +45,6 @@ def saveProduct( obj, xmlname):
     return None
 
 
-def getCommonBurstLimits(reference, secondary):
-    """Match cropped TOPS bursts by their preserved annotation burst numbers.
-
-    ISCE2's default matcher compares orbit positions at ``sensingMid`` and uses
-    the reference burst length as its tolerance.  After a geographic subset is
-    applied to the reference, that tolerance can become too small even though
-    the original burst identities still match.  Prefer the preserved
-    ``burstNumber`` sequence and fall back to ISCE2 only when it is unavailable.
-    """
-    ref_numbers = [getattr(burst, 'burstNumber', None)
-                   for burst in reference.bursts]
-    sec_numbers = [getattr(burst, 'burstNumber', None)
-                   for burst in secondary.bursts]
-    if (ref_numbers and sec_numbers and
-            None not in ref_numbers and None not in sec_numbers):
-        for ref_start, number in enumerate(ref_numbers):
-            if number not in sec_numbers:
-                continue
-            sec_start = sec_numbers.index(number)
-            count = 0
-            while (ref_start + count < len(ref_numbers) and
-                   sec_start + count < len(sec_numbers) and
-                   ref_numbers[ref_start + count] == sec_numbers[sec_start + count]):
-                count += 1
-            if count:
-                offset = sec_start - ref_start
-                print('Matched bursts by burstNumber:',
-                      ref_numbers[ref_start:ref_start + count],
-                      'offset=', offset)
-                return offset, ref_start, ref_start + count
-
-    print('burstNumber matching unavailable; falling back to ISCE2 orbit matcher')
-    return reference.getCommonBurstLimits(secondary)
-
-
 def getRelativeShifts(mFrame, sFrame, minBurst, maxBurst, secondaryBurstStart):
     '''
     Estimate the relative shifts between the start of the bursts.
@@ -309,4 +274,3 @@ def getSwathList(indir):
             swathList.append(x)
 
     return swathList
-
