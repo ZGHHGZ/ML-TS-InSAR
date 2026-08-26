@@ -173,6 +173,53 @@ def build_product_nonzero_crop_info(product_root: str, IW: str,
     return windows
 
 
+def map_reference_crop_to_secondary(ref_crop_info: dict,
+                                    sec_nonzero_info: dict) -> dict:
+    """Map the reference subset proportionally into each secondary online window.
+
+    Reference and secondary acquisitions can have slightly different online
+    x/y offsets and sizes.  Copying absolute offsets is therefore wrong, while
+    keeping the complete secondary window makes the cropped reference and the
+    secondary burst midpoints too far apart.  Preserve the reference subset's
+    fractional bounds within its pre-topo online window and apply those bounds
+    to the secondary acquisition's own online window.
+    """
+    mapped = {}
+    for nn, ref in sorted(ref_crop_info.items()):
+        sec = sec_nonzero_info.get(nn)
+        if sec is None:
+            continue
+        ref_full_width = int(ref.get('original_width', 0))
+        ref_full_height = int(ref.get('original_height', 0))
+        if ref_full_width <= 0 or ref_full_height <= 0:
+            raise RuntimeError('reference burst ' + nn + ' 缺少预裁剪尺寸')
+
+        sec_width = int(sec['width'])
+        sec_height = int(sec['height'])
+        x0 = int(math.floor(int(ref['xoff']) * sec_width /
+                            ref_full_width + 0.5))
+        x1 = int(math.floor((int(ref['xoff']) + int(ref['width'])) *
+                            sec_width / ref_full_width + 0.5))
+        y0 = int(math.floor(int(ref['yoff']) * sec_height /
+                            ref_full_height + 0.5))
+        y1 = int(math.floor((int(ref['yoff']) + int(ref['height'])) *
+                            sec_height / ref_full_height + 0.5))
+        x0 = max(0, min(sec_width - 1, x0))
+        y0 = max(0, min(sec_height - 1, y0))
+        x1 = max(x0 + 1, min(sec_width, x1))
+        y1 = max(y0 + 1, min(sec_height, y1))
+        mapped[nn] = {
+            'xoff': int(sec['xoff']) + x0,
+            'yoff': int(sec['yoff']) + y0,
+            'width': x1 - x0,
+            'height': y1 - y0,
+            'geometry_width': sec.get('geometry_width'),
+            'geometry_length': sec.get('geometry_length'),
+            'footprint': [],
+        }
+    return mapped
+
+
 def prepare_reference_crop_before_topo() -> None:
     """Crop reference radar grids before topo so topo only covers downloaded data."""
     global REFERENCE_PRETOPO_CROP
@@ -1146,17 +1193,24 @@ for i in range(len(run)):
                             print("    跳过 " + sec_iw_xml + "（不存在）")
                             continue
                         ref_ci = REF_CROP_INFO[IW]
-                        sec_ci = build_product_nonzero_crop_info(
+                        sec_nonzero_ci = build_product_nonzero_crop_info(
                             sec_dir, IW, allowed_bursts=ref_ci.keys())
-                        if not sec_ci:
+                        if not sec_nonzero_ci:
                             print("    警告：secondary " + sec_date + " " + IW +
                                   " 没有非零在线窗口，跳过")
+                            prune_product_bursts(sec_dir, IW, {})
+                            continue
+                        sec_ci = map_reference_crop_to_secondary(
+                            ref_ci, sec_nonzero_ci)
+                        if not sec_ci:
+                            print("    警告：secondary " + sec_date + " " + IW +
+                                  " 无法映射 reference 裁剪范围，跳过")
                             prune_product_bursts(sec_dir, IW, {})
                             continue
                         add_original_burst_metadata(sec_iw_xml, sec_ci)
                         secondary_phase_info[IW] = sec_ci
                         for nn, info in sorted(sec_ci.items()):
-                            print("    secondary 自身窗口 " + IW + " burst " + nn +
+                            print("    secondary 同步窗口 " + IW + " burst " + nn +
                                   ": xoff=" + str(info['xoff']) +
                                   " yoff=" + str(info['yoff']) +
                                   " width=" + str(info['width']) +
