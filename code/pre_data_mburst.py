@@ -72,6 +72,10 @@ with open(pre_parameter_path, 'r') as f:
         elif line.startswith('解缠步骤并行运行数：'):
             unw_mp= line.split('：')[1].strip()
 
+# 只有四个边界值都提供时才启用经纬度二次裁剪；
+# 任意一项缺失时保持原有的“非零在线数据窗”处理。
+HAS_GEO_BBOX = all(value != '' for value in (lat1, lat2, lon1, lon2))
+
 ####tif dem转isce格式####
 def tag_dem_xml_as_ellipsoidal(dem_path: Path) -> str:
     xml_path = str(dem_path) + '.xml'
@@ -213,6 +217,12 @@ def prepare_reference_crop_before_topo() -> None:
         update_iw_xml_geometry('./reference/' + IW + '.xml', crop_info)
     REFERENCE_PRETOPO_CROP = True
     print('>>> reference 已在 topo 前裁剪；run_01 topo 将只计算在线数据区域')
+    # 写标记文件，供 run_01 判定磁盘 reference 是否已完成无黑边裁剪
+    # （避免 crop_state.json 残留旧状态导致裁剪被跳过、topo 误处理全幅）。
+    try:
+        open('./reference/.pretopo_cropped', 'w').close()
+    except Exception as e:
+        print('警告：写入 pre-topo 裁剪标记失败: ' + str(e))
 
 
 def calculate_iw_crop_info(IW: str, lat1, lat2, lon1, lon2) -> dict:
@@ -969,6 +979,8 @@ REF_CROP_INFO = {}
 ACQUISITION_CROP_INFO = {}
 # True 表示 reference VRT/XML 已在 run_01 topo 前完成物理裁剪。
 REFERENCE_PRETOPO_CROP = False
+# True 表示提供了完整经纬度框，且已在 topo 后完成二次裁剪。
+REFERENCE_POSTTOPO_CROP = False
 
 # 动态发现 run_files 下所有步骤（按名称匹配，不依赖硬编码编号；切换 coregistration 方式时步骤数会变）
 run = sorted([os.path.basename(p) for p in glob.glob('./run_files/run_*')])
@@ -986,9 +998,17 @@ for i in range(len(run)):
     runstep = run[i]
     if runstep == 'run_01_unpack_topo_reference':
         os.system('rm -rf ./geom_reference')
-        if (lat1 != '' and lat2 != '' and lon1 != '' and lon2 != '' and
-                not REF_CROP_INFO):
-            prepare_reference_crop_before_topo()
+        # 无论是否提供经纬度框，都在 topo 前按「已下载 SLC 非零窗口（无黑边区）」裁剪
+        # reference，使 topo 只处理有效（无黑边）数据、避免全幅/黑边计算。经纬度框的
+        # 精确裁剪交给下方 lat/lon 块在 topo 后统一执行（crop_reference_burst_slc
+        # 偏移安全，可在此基础上再裁到框）。
+        # 注意：不能用 REF_CROP_INFO/经纬度是否提供来判断是否需裁剪——REF_CROP_INFO
+        # 会从 crop_state.json 跨进程恢复，若残留旧状态而磁盘 reference 已被重新解包
+        # 成全幅，会错误地跳过裁剪，导致 topo 处理整幅（含黑边）。改用标记文件判断
+        # 磁盘 reference 是否已完成无黑边裁剪，缺失或元数据丢失时一律重裁。
+        # 每次根据当前磁盘上的 VRT 重建窗口，避免旧标记或旧状态
+        # 使本次 topo 误用全幅/过期几何。已裁剪数据再检测时偏移为 0，是幂等的。
+        prepare_reference_crop_before_topo()
     with open('./run_files/' + str(runstep), "r") as f:
         a = f.readlines()
         print(str(a[0])[0:6])
@@ -1011,7 +1031,7 @@ for i in range(len(run)):
     # 未裁剪或旧参数的运行，其 firstValidSample/firstValidLine 会把大黑边
     # 和错误有效区带回新的裁剪结果。必须在 run_06 启动前清掉旧 stack。
     if ('extract_stack_valid_region' in runstep and
-            lat1 != '' and lat2 != '' and lon1 != '' and lon2 != ''):
+            HAS_GEO_BBOX):
         if os.path.isdir('./stack'):
             print(">>> 检测到旧 stack，删除后按当前裁剪后的 reference 重新计算公共有效区")
             shutil.rmtree('./stack')
@@ -1043,12 +1063,15 @@ for i in range(len(run)):
     # 随后在 run_03 阶段按各 burst 真实尺寸更新 reference/IWn.xml。
     # 若处理整个 burst（不裁剪），将下方 if 整段注释即可
     ##############################################################################
-    if lat1!='' and lat2 != '' and lon1 != '' and lon2 != '':
+    if HAS_GEO_BBOX:
         # ---------------- 步骤 run_01：裁剪 geom_reference + reference SLC VRT ----------------
         # 物理裁剪数据，使后续所有步骤都基于裁剪后的参考网格。
         # IWn.xml 的更新推迟到 run_03，与 secondarys 一起完成，避免 run_02 解包前
         # reference xml 已被改写而 secondary xml 仍为原始值。
-        if runstep == 'run_01_unpack_topo_reference' and not REFERENCE_PRETOPO_CROP:
+        if runstep == 'run_01_unpack_topo_reference' and not REFERENCE_POSTTOPO_CROP:
+            # topo 前的 REF_CROP_INFO 是非零数据窗；从这里起必须换成
+            # 以 topo 产生的 lat/lon 为基准计算的二次裁剪窗口。
+            REF_CROP_INFO.clear()
             iw_list = get_iw_list()
             if len(iw_list) == 0:
                 print("警告：geom_reference 下未检测到 IW* 目录，跳过裁剪")
@@ -1088,6 +1111,7 @@ for i in range(len(run)):
                 # 不使用跨 IW 对齐后扩展的物理范围覆盖原始裁剪窗口。
                 write_crop_summary_kml(REF_CROP_INFO, lat1, lat2, lon1, lon2)
                 save_crop_metadata(REF_CROP_INFO, ACQUISITION_CROP_INFO)
+            REFERENCE_POSTTOPO_CROP = True
 
         # ---------------- 步骤 run_02：secondarys 解包完成后，与主影像同步裁剪 SLC VRT ----------------
         # 关键修复：若仅裁剪 reference 而 secondarys 保持原始几何，则主从 burst 的
@@ -1111,11 +1135,11 @@ for i in range(len(run)):
                         if IW not in REF_CROP_INFO:
                             prune_product_bursts(sec_dir, IW, {})
                             continue
-                        ref_ci = REF_CROP_INFO[IW]
                         sec_iw_xml = sec_dir + IW + '.xml'
                         if not os.path.exists(sec_iw_xml):
                             print("    跳过 " + sec_iw_xml + "（不存在）")
                             continue
+                        ref_ci = REF_CROP_INFO[IW]
                         sec_ci = build_product_nonzero_crop_info(
                             sec_dir, IW, allowed_bursts=ref_ci.keys())
                         if not sec_ci:
@@ -1152,7 +1176,7 @@ for i in range(len(run)):
                 for IW, ci in REF_CROP_INFO.items():
                     ref_xml = 'reference/' + IW + '.xml'
                     if os.path.exists(ref_xml):
-                        if REFERENCE_PRETOPO_CROP:
+                        if REFERENCE_PRETOPO_CROP and not REFERENCE_POSTTOPO_CROP:
                             print(">>> reference " + IW + ".xml 已在 topo 前更新，跳过重复平移")
                         else:
                             print(">>> 正在更新 reference " + IW + ".xml 几何...")
