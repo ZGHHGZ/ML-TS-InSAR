@@ -147,79 +147,6 @@ def find_nonzero_slc_window(vrt_path: str, block_rows: int = 64) -> tuple:
     return min_x, min_y, max_x - min_x + 1, max_y - min_y + 1, width, height
 
 
-def build_product_nonzero_crop_info(product_root: str, IW: str,
-                                    allowed_bursts=None) -> dict:
-    """Build this acquisition's own online-data windows from burst VRTs."""
-    allowed = ({str(value).zfill(2) for value in allowed_bursts}
-               if allowed_bursts is not None else None)
-    iw_dir = os.path.join(product_root, IW)
-    windows = {}
-    for vrt_path in sorted(glob.glob(os.path.join(iw_dir, 'burst_*.slc.vrt'))):
-        match = re.search(r'burst_(\d+)\.slc\.vrt$', os.path.basename(vrt_path))
-        if not match:
-            continue
-        nn = match.group(1).zfill(2)
-        if allowed is not None and nn not in allowed:
-            continue
-        xoff, yoff, width, height, full_width, full_height = (
-            find_nonzero_slc_window(vrt_path))
-        windows[nn] = {
-            'xoff': xoff, 'yoff': yoff,
-            'width': width, 'height': height,
-            'geometry_width': full_width,
-            'geometry_length': full_height,
-            'footprint': [],
-        }
-    return windows
-
-
-def map_reference_crop_to_secondary(ref_crop_info: dict,
-                                    sec_nonzero_info: dict) -> dict:
-    """Map the reference subset proportionally into each secondary online window.
-
-    Reference and secondary acquisitions can have slightly different online
-    x/y offsets and sizes.  Copying absolute offsets is therefore wrong, while
-    keeping the complete secondary window makes the cropped reference and the
-    secondary burst midpoints too far apart.  Preserve the reference subset's
-    fractional bounds within its pre-topo online window and apply those bounds
-    to the secondary acquisition's own online window.
-    """
-    mapped = {}
-    for nn, ref in sorted(ref_crop_info.items()):
-        sec = sec_nonzero_info.get(nn)
-        if sec is None:
-            continue
-        ref_full_width = int(ref.get('original_width', 0))
-        ref_full_height = int(ref.get('original_height', 0))
-        if ref_full_width <= 0 or ref_full_height <= 0:
-            raise RuntimeError('reference burst ' + nn + ' 缺少预裁剪尺寸')
-
-        sec_width = int(sec['width'])
-        sec_height = int(sec['height'])
-        x0 = int(math.floor(int(ref['xoff']) * sec_width /
-                            ref_full_width + 0.5))
-        x1 = int(math.floor((int(ref['xoff']) + int(ref['width'])) *
-                            sec_width / ref_full_width + 0.5))
-        y0 = int(math.floor(int(ref['yoff']) * sec_height /
-                            ref_full_height + 0.5))
-        y1 = int(math.floor((int(ref['yoff']) + int(ref['height'])) *
-                            sec_height / ref_full_height + 0.5))
-        x0 = max(0, min(sec_width - 1, x0))
-        y0 = max(0, min(sec_height - 1, y0))
-        x1 = max(x0 + 1, min(sec_width, x1))
-        y1 = max(y0 + 1, min(sec_height, y1))
-        mapped[nn] = {
-            'xoff': int(sec['xoff']) + x0,
-            'yoff': int(sec['yoff']) + y0,
-            'width': x1 - x0,
-            'height': y1 - y0,
-            'geometry_width': sec.get('geometry_width'),
-            'geometry_length': sec.get('geometry_length'),
-            'footprint': [],
-        }
-    return mapped
-
-
 def prepare_reference_crop_before_topo() -> None:
     """Crop reference radar grids before topo so topo only covers downloaded data."""
     global REFERENCE_PRETOPO_CROP
@@ -252,6 +179,11 @@ def prepare_reference_crop_before_topo() -> None:
             continue
         ref_xml = os.path.join('./reference', IW + '.xml')
         add_original_burst_metadata(ref_xml, windows)
+        # 此时 IW*.xml 仍是解包后的完整原始雷达网格。必须单独保留这份
+        # 时间/距离原点；topo 后还会发生一次局部裁剪，不能让第二次读取的
+        # sensingStart 覆盖真正的 native burst 原点。
+        REFERENCE_FULL_GRID_INFO[IW] = copy.deepcopy(windows)
+        REFERENCE_NATIVE_PHASE_INFO[IW] = copy.deepcopy(windows)
         REF_CROP_INFO[IW] = windows
     if not REF_CROP_INFO:
         raise RuntimeError('所有 reference IW 都没有在线下载的非零数据')
@@ -736,14 +668,41 @@ def save_crop_metadata(crop_info_by_iw: dict, acquisitions: dict,
                        path: str = './geom_reference/crop_metadata.json') -> None:
     """Save per-acquisition full-burst carrier origins for mburst resampling."""
     payload = {
-        'version': 2,
+        'version': 3,
         'description': 'Per-acquisition TOPS full-burst grid used after physical crop',
         'reference_swaths': crop_info_by_iw,
+        # 与 reference_swaths 分开：前者是当前文件上的局部裁剪窗口，
+        # 此字段保存相对于最初完整 burst 的累计窗口与原始时间原点。
+        'reference_native_swaths': REFERENCE_NATIVE_PHASE_INFO,
         'acquisitions': acquisitions,
     }
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
     print(">>> 已保存各日期 TOPS 原始相位参考信息: " + path)
+
+
+def build_reference_native_phase_info(final_crop_info: dict) -> dict:
+    """Combine pre-topo and post-topo crops on the original reference grid."""
+    combined = {}
+    for IW, bursts in final_crop_info.items():
+        full_grid_bursts = REFERENCE_FULL_GRID_INFO.get(IW, {})
+        combined[IW] = {}
+        for nn, local_info in bursts.items():
+            full_info = full_grid_bursts.get(nn)
+            if full_info is None:
+                raise RuntimeError(
+                    '缺少 reference 原始网格信息: ' + IW + ' burst ' + nn)
+            native_info = copy.deepcopy(local_info)
+            native_info['xoff'] = (int(full_info['xoff']) +
+                                   int(local_info['xoff']))
+            native_info['yoff'] = (int(full_info['yoff']) +
+                                   int(local_info['yoff']))
+            for key in ('original_width', 'original_height',
+                        'original_starting_range', 'original_sensing_start',
+                        'original_sensing_stop', 'azimuth_time_interval'):
+                native_info[key] = full_info[key]
+            combined[IW][nn] = native_info
+    return combined
 
 
 def _shift_datetime_str(s: str, dt_seconds: float, n_lines: int) -> str:
@@ -1005,24 +964,29 @@ else:
         line_merged = open(merge_run).readlines()
         open(merge_run, 'w').writelines(line_merged[1:])
 
-def configure_mburst_resampler():
-    """Make only this workflow call the crop-aware resampler module."""
+def configure_standard_resampler():
+    """Keep secondary SLCs on their native grid and use ISCE's resampler."""
     changed = 0
     for config_path in sorted(glob.glob('./configs/config_*resample*')):
         text = Path(config_path).read_text(encoding='utf-8')
-        updated = re.sub(r'(?m)^resamp_withCarrier\s*:',
-                         'resamp_withCarrier_mburst :', text)
+        updated = re.sub(r'(?m)^resamp_withCarrier_mburst\s*:',
+                         'resamp_withCarrier :', text)
         if updated != text:
             Path(config_path).write_text(updated, encoding='utf-8')
             changed += 1
-    print('>>> mburst1 已启用原始网格载波重采样配置: ' + str(changed) + ' 个')
+    print('>>> secondary 保持原始网格，已恢复标准载波重采样配置: ' +
+          str(changed) + ' 个')
 
 
-configure_mburst_resampler()
+configure_standard_resampler()
 
-# 存储 reference 各 IW 的裁剪窗口，供后续对 secondarys 复用同一套 xoff/yoff
+# 存储 reference 各 IW 的裁剪窗口；secondary 始终保持原始雷达网格。
 REF_CROP_INFO = {}
-# 各日期独立的完整 burst 元数据；不能把 reference 高度/起始距离套给 secondary。
+# topo 前从解包后的 IW*.xml 读取的真正完整 reference 雷达网格。
+REFERENCE_FULL_GRID_INFO = {}
+# 最终裁剪窗口在完整 reference 雷达网格上的累计位置，供载波相位计算。
+REFERENCE_NATIVE_PHASE_INFO = {}
+# 保存 reference 的原始 burst 元数据，供裁剪记录和诊断使用。
 ACQUISITION_CROP_INFO = {}
 # True 表示 reference VRT/XML 已在 run_01 topo 前完成物理裁剪。
 REFERENCE_PRETOPO_CROP = False
@@ -1099,6 +1063,13 @@ for i in range(len(run)):
                         '-i', './run_files/' + str(runstep),
                         '-p', str(flow_mp)], check=True)
 
+    # 即使未提供额外经纬度框，稀疏 SAFE 的 reference 也已经在 topo 前按
+    # 非零窗口裁剪。此时同样要写出完整 burst 的原始时间网格，避免 run_05
+    # 把不同 burst 的非零窗口 yoff 当成真实轨道时移。
+    if (runstep == 'run_01_unpack_topo_reference' and
+            not HAS_GEO_BBOX and REF_CROP_INFO):
+        save_crop_metadata(REF_CROP_INFO, ACQUISITION_CROP_INFO)
+
     ##############################################################################
     # 更改干涉处理中主影像数据路径
     if runstep == 'run_00_unpack_topo_reference':
@@ -1143,13 +1114,17 @@ for i in range(len(run)):
                 # TOPS 载频不是以裁剪后影像中心为参考；丢失这些值会在 burst
                 # 交界处产生相位常数/斜坡跳变。
                 add_original_burst_metadata('./reference/' + IW + '.xml', crop_info)
-                # 存下该 IW 的裁剪窗口，供 secondarys 复用（保证主从影像 burst 几何对齐）
+                # 存下 reference 的裁剪窗口；secondary 保持原始网格，后续由
+                # geo2rdr/resample 映射到该 reference 网格。
                 REF_CROP_INFO[IW] = crop_info
 
             if not REF_CROP_INFO:
                 raise RuntimeError("裁剪范围与 reference 的所有 IW/burst 均无交集")
             # 第二阶段：跨 IW 统一绝对方位时间，然后才物理裁剪 geometry/SLC。
             align_iw_azimuth_windows(REF_CROP_INFO)
+            REFERENCE_NATIVE_PHASE_INFO.clear()
+            REFERENCE_NATIVE_PHASE_INFO.update(
+                build_reference_native_phase_info(REF_CROP_INFO))
             reference_date = get_product_acquisition_date('./reference')
             ACQUISITION_CROP_INFO[reference_date] = copy.deepcopy(REF_CROP_INFO)
             print(">>> 已保存 reference 日期原始载波网格: " + reference_date)
@@ -1166,68 +1141,33 @@ for i in range(len(run)):
                 save_crop_metadata(REF_CROP_INFO, ACQUISITION_CROP_INFO)
             REFERENCE_POSTTOPO_CROP = True
 
-        # ---------------- 步骤 run_02：secondarys 解包完成后，与主影像同步裁剪 SLC VRT ----------------
-        # 关键修复：若仅裁剪 reference 而 secondarys 保持原始几何，则主从 burst 的
-        # sensingStart / startingRange 错位，geo2rdr 的 getBurstOffset 找不到合法偏移，
-        # 从 run_04 起级联崩溃。此处用与 reference 完全相同的 xoff/yoff 裁剪每个
-        # secondary 的 SLC VRT，xml 几何平移放到 run_03 统一完成。
+        # ---------------- 步骤 run_02：secondarys 始终保持完整原始雷达网格 ----------------
+        # 稀疏 BBOX SAFE 与完整 SAFE 使用同一流程：不裁 secondary VRT，不改
+        # sensingStart/startingRange/尺寸。BBOX 外的零值只表示无数据；run_04
+        # geo2rdr 会把裁剪后的 reference geometry 直接映射到每景 secondary 的
+        # 原始网格，run_05 resample 的输出尺寸仍由 reference 决定。
         if runstep == 'run_02_unpack_secondary_slc':
             if not REF_CROP_INFO:
-                print("警告：未获取到 reference 裁剪窗口，跳过 secondarys 裁剪")
+                print("警告：未获取到 reference 裁剪窗口")
             else:
                 sec_dirs = sorted(glob.glob('./secondarys/*/'))
                 if len(sec_dirs) == 0:
-                    print("警告：未检测到 secondarys/* 目录，跳过 secondarys 裁剪")
+                    print("警告：未检测到 secondarys/* 目录")
                 for sec_dir in sec_dirs:
                     sec_date = sec_dir.rstrip('/').split('/')[-1]
-                    print(">>> 正在对 secondary [" + sec_date + "] 执行与 reference 同步的多 burst VRT 裁剪...")
-                    secondary_phase_info = {}
-                    # secondary 解包仍可能生成所有原始 IW；这里仅保留 reference
-                    # 实际覆盖目标范围的 IW/burst。
+                    # 若解包器产生 reference 中不存在的 IW，必须从产品中停用，
+                    # 否则 geo2rdr 会因主辅 swath 列表不一致而尝试读取缺失 XML。
+                    # reference 中存在的 IW/burst 则完全不裁剪。
                     for IW in get_product_iw_list(sec_dir):
                         if IW not in REF_CROP_INFO:
                             prune_product_bursts(sec_dir, IW, {})
-                            continue
-                        sec_iw_xml = sec_dir + IW + '.xml'
-                        if not os.path.exists(sec_iw_xml):
-                            print("    跳过 " + sec_iw_xml + "（不存在）")
-                            continue
-                        ref_ci = REF_CROP_INFO[IW]
-                        sec_nonzero_ci = build_product_nonzero_crop_info(
-                            sec_dir, IW, allowed_bursts=ref_ci.keys())
-                        if not sec_nonzero_ci:
-                            print("    警告：secondary " + sec_date + " " + IW +
-                                  " 没有非零在线窗口，跳过")
-                            prune_product_bursts(sec_dir, IW, {})
-                            continue
-                        sec_ci = map_reference_crop_to_secondary(
-                            ref_ci, sec_nonzero_ci)
-                        if not sec_ci:
-                            print("    警告：secondary " + sec_date + " " + IW +
-                                  " 无法映射 reference 裁剪范围，跳过")
-                            prune_product_bursts(sec_dir, IW, {})
-                            continue
-                        add_original_burst_metadata(sec_iw_xml, sec_ci)
-                        secondary_phase_info[IW] = sec_ci
-                        for nn, info in sorted(sec_ci.items()):
-                            print("    secondary 同步窗口 " + IW + " burst " + nn +
-                                  ": xoff=" + str(info['xoff']) +
-                                  " yoff=" + str(info['yoff']) +
-                                  " width=" + str(info['width']) +
-                                  " height=" + str(info['height']))
-                        try:
-                            crop_reference_burst_slc(IW, sec_ci, slc_dir=sec_dir + IW)
-                            prune_product_bursts(sec_dir, IW, sec_ci)
-                        except Exception as e:
-                            print("    警告：裁剪 secondary " + sec_date + " " + IW + " VRT 失败: " + str(e))
-                    if secondary_phase_info:
-                        ACQUISITION_CROP_INFO[sec_date.replace('-', '')] = secondary_phase_info
-                        print("    已保存 secondary 原始载波网格: " + sec_date)
+                    print(">>> secondary [" + sec_date +
+                          "] 保持原始 VRT/XML，不执行预裁剪")
 
 
-        # ---------------- 步骤 run_03：统一更新 reference 与 secondarys 的 IWn.xml 几何 ----------------
-        # 放在 baseline 计算之后、geo2rdr 之前，确保 xml 中 numberOfLines/Samples、
-        # sensingStart、startingRange 等参数与裁剪后的 VRT 严格一致。
+        # ---------------- 步骤 run_03：只更新 reference 的 IWn.xml 几何 ----------------
+        # secondary 未裁剪，必须保留原始 numberOfLines/numberOfSamples、
+        # sensingStart 和 startingRange，供 geo2rdr / resample 直接定位。
         if runstep == 'run_03_average_baseline':
             if not REF_CROP_INFO:
                 print("警告：未获取到 reference 裁剪窗口，跳过 xml 几何更新")
@@ -1243,19 +1183,3 @@ for i in range(len(run)):
                             update_iw_xml_geometry(ref_xml, ci)
                     else:
                         print("    跳过 " + ref_xml + "（不存在）")
-                    sec_dirs = sorted(glob.glob('./secondarys/*/'))
-                    for sec_dir in sec_dirs:
-                        sec_date = sec_dir.rstrip('/').split('/')[-1]
-                        sec_xml = sec_dir + IW + '.xml'
-                        if os.path.exists(sec_xml):
-                            date_key = sec_date.replace('-', '')
-                            sec_ci = ACQUISITION_CROP_INFO.get(date_key, {}).get(IW)
-                            if not sec_ci:
-                                raise RuntimeError(
-                                    "缺少 secondary " + sec_date + " " + IW +
-                                    " 的独立裁剪窗口")
-                            print("    正在按自身窗口更新 secondary " + sec_date +
-                                  " " + IW + ".xml 几何...")
-                            update_iw_xml_geometry(sec_xml, sec_ci)
-                        else:
-                            print("    跳过 " + sec_xml + "（不存在）")
