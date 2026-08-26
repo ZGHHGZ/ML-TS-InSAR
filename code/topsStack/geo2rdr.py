@@ -254,7 +254,8 @@ def main(iargs=None):
         else:
              misreg_rg = 0.0
 
-        burstoffset, minBurst, maxBurst = reference.getCommonBurstLimits(secondary)
+        burstoffset, minBurst, maxBurst = ut.getCommonBurstLimits(
+            reference, secondary)
 
         ###Burst indices w.r.t reference
         if inps.overlap:
