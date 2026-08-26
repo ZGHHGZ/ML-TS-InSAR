@@ -2,6 +2,9 @@ from coregSwathSLCProduct import coregSwathSLCProduct
 import isce
 import isceobj
 import os
+import numpy as np
+import json
+import datetime
 #from isceobj.Sensor.TOPS.coregSwathSLCProduct import coregSwathSLCProduct
 
 class catalog(object):
@@ -45,6 +48,61 @@ def saveProduct( obj, xmlname):
     return None
 
 
+def getCommonBurstLimits(reference, secondary):
+    """Return common burst indices, robust to a cropped reference grid.
+
+    ISCE's native getBurstOffset() compares burst timing/geometry and may fail
+    after sensingStart and startingRange are shifted to describe a cropped
+    reference.  The burstNumber field is not changed by spatial cropping, so
+    use it as a deterministic fallback.  Returned values keep ISCE's original
+    convention: (secondary_index - reference_index, reference_start,
+    reference_stop_exclusive).
+    """
+    try:
+        return reference.getCommonBurstLimits(secondary)
+    except Exception as native_error:
+        ref_index = {}
+        sec_index = {}
+        for index, burst in enumerate(reference.bursts):
+            number = int(burst.burstNumber)
+            if number in ref_index:
+                raise RuntimeError(
+                    'Duplicate reference burstNumber: {0}'.format(number))
+            ref_index[number] = index
+        for index, burst in enumerate(secondary.bursts):
+            number = int(burst.burstNumber)
+            if number in sec_index:
+                raise RuntimeError(
+                    'Duplicate secondary burstNumber: {0}'.format(number))
+            sec_index[number] = index
+
+        common_numbers = sorted(set(ref_index).intersection(sec_index))
+        if not common_numbers:
+            raise RuntimeError(
+                'Native burst matching failed ({0}); reference and secondary '
+                'have no common burstNumber'.format(native_error))
+
+        ref_indices = [ref_index[number] for number in common_numbers]
+        sec_indices = [sec_index[number] for number in common_numbers]
+        expected_ref = list(range(ref_indices[0], ref_indices[-1] + 1))
+        expected_sec = list(range(sec_indices[0], sec_indices[-1] + 1))
+        if ref_indices != expected_ref or sec_indices != expected_sec:
+            raise RuntimeError(
+                'Common burstNumber sequence is not contiguous: {0}'.format(
+                    common_numbers))
+        if len(ref_indices) != len(sec_indices):
+            raise RuntimeError('Reference/secondary common burst count differs')
+
+        burst_offset = sec_indices[0] - ref_indices[0]
+        print('Warning: native getCommonBurstLimits failed: {0}'.format(
+            native_error))
+        print('Using burstNumber fallback: numbers={0}, reference=[{1},{2}), '
+              'secondary_start={3}, offset={4}'.format(
+                  common_numbers, ref_indices[0], ref_indices[-1] + 1,
+                  sec_indices[0], burst_offset))
+        return burst_offset, ref_indices[0], ref_indices[-1] + 1
+
+
 def getRelativeShifts(mFrame, sFrame, minBurst, maxBurst, secondaryBurstStart):
     '''
     Estimate the relative shifts between the start of the bursts.
@@ -68,6 +126,71 @@ def getRelativeShifts(mFrame, sFrame, minBurst, maxBurst, secondaryBurstStart):
 
     
     return azRelOff
+
+
+def getRelativeShiftsFromReferenceNativeGrid(
+        mFrame, sFrame, minBurst, maxBurst, secondaryBurstStart,
+        swath, metadataPath=os.path.join('geom_reference',
+                                        'crop_metadata.json')):
+    """Compute burst shifts using the reference grid before spatial crop.
+
+    Cropping changes each reference burst sensingStart by a different yoff.
+    Using those cropped times in getRelativeShifts() incorrectly injects that
+    yoff difference into the secondary azimuth-carrier polynomial.  Restore
+    the per-burst native sensingStart saved by pre_data_mburst.py instead.
+    """
+    if not os.path.exists(metadataPath):
+        print('Native reference crop metadata not found; using product times')
+        return getRelativeShifts(
+            mFrame, sFrame, minBurst, maxBurst, secondaryBurstStart)
+
+    with open(metadataPath, 'r', encoding='utf-8') as file:
+        payload = json.load(file)
+    iw = 'IW{0}'.format(swath)
+    # version 3 records the grid before either reference crop. Keep the
+    # version-2 fallback so existing geometry can resume at resampling.
+    referenceInfo = payload.get('reference_native_swaths', {}).get(iw)
+    metadataGrid = 'native'
+    if not referenceInfo:
+        referenceInfo = payload.get('reference_swaths', {}).get(iw)
+        metadataGrid = 'legacy'
+    if not referenceInfo:
+        raise RuntimeError(
+            'Missing native reference timing metadata for {0}'.format(iw))
+
+    dt = float(mFrame.bursts[minBurst].azimuthTimeInterval)
+    firstKey = '{0:02d}'.format(minBurst + 1)
+    if firstKey not in referenceInfo:
+        raise RuntimeError(
+            'Missing native reference burst metadata: {0} {1}'.format(
+                iw, firstKey))
+    nativeReferenceStart = datetime.datetime.fromisoformat(
+        str(referenceInfo[firstKey]['original_sensing_start']))
+    secondaryStart = sFrame.bursts[secondaryBurstStart].sensingStart
+
+    shifts = {}
+    for referenceIndex in range(minBurst, maxBurst):
+        key = '{0:02d}'.format(referenceIndex + 1)
+        info = referenceInfo.get(key)
+        if info is None:
+            raise RuntimeError(
+                'Missing native reference burst metadata: {0} {1}'.format(
+                    iw, key))
+        referenceTime = datetime.datetime.fromisoformat(
+            str(info['original_sensing_start']))
+        referenceOffset = int(np.round(
+            (referenceTime - nativeReferenceStart).total_seconds() / dt))
+
+        secondaryIndex = (secondaryBurstStart +
+                          referenceIndex - minBurst)
+        secondaryTime = sFrame.bursts[secondaryIndex].sensingStart
+        secondaryOffset = int(np.round(
+            (secondaryTime - secondaryStart).total_seconds() / dt))
+        shifts[secondaryIndex] = secondaryOffset - referenceOffset
+
+    print('Native-grid relative burst shifts for {0} ({1} metadata): {2}'.format(
+        iw, metadataGrid, shifts))
+    return shifts
 
 
 def adjustValidSampleLine(reference,  minAz=0, maxAz=0, minRng=0, maxRng=0):
@@ -230,6 +353,57 @@ def getValidLines(secondary, rdict, inname, misreg_az=0.0, misreg_rng=0.0):
     rmax = np.nanmax(rr)
 
     return amin, amax, rmin, rmax
+
+
+def adjustValidRegionFromOffsets(reference, secondary, rdict,
+                                 kernelMargin=4):
+    """Set the valid output rectangle from the actual geo2rdr mapping.
+
+    This works when the reference is cropped but the secondary stays on its
+    full native grid.  For each output pixel, geo2rdr provides the secondary
+    coordinate as output_index + offset.  Pixels are valid only when that
+    coordinate falls inside the secondary valid-data rectangle, with a small
+    interpolation-kernel margin.
+    """
+    height = int(reference.numberOfLines)
+    width = int(reference.numberOfSamples)
+    azimuth = np.fromfile(
+        rdict['azimuthOff'], dtype=np.float32).reshape(height, width)
+    rng = np.fromfile(
+        rdict['rangeOff'], dtype=np.float32).reshape(height, width)
+
+    rows = np.arange(height, dtype=np.float64)[:, None]
+    cols = np.arange(width, dtype=np.float64)[None, :]
+    secondaryRows = rows + azimuth
+    secondaryCols = cols + rng
+
+    firstLine = int(secondary.firstValidLine) + int(kernelMargin)
+    lastLine = (int(secondary.firstValidLine) +
+                int(secondary.numValidLines) - 1 - int(kernelMargin))
+    firstSample = int(secondary.firstValidSample) + int(kernelMargin)
+    lastSample = (int(secondary.firstValidSample) +
+                  int(secondary.numValidSamples) - 1 - int(kernelMargin))
+
+    valid = (np.isfinite(azimuth) & np.isfinite(rng) &
+             (azimuth > -10000.0) & (rng > -10000.0) &
+             (secondaryRows >= firstLine) &
+             (secondaryRows <= lastLine) &
+             (secondaryCols >= firstSample) &
+             (secondaryCols <= lastSample))
+    validRows = np.flatnonzero(np.any(valid, axis=1))
+    validCols = np.flatnonzero(np.any(valid, axis=0))
+    if validRows.size == 0 or validCols.size == 0:
+        raise RuntimeError(
+            'Resampled burst has no pixels inside the secondary valid region')
+
+    reference.firstValidLine = int(validRows[0])
+    reference.numValidLines = int(validRows[-1] - validRows[0] + 1)
+    reference.firstValidSample = int(validCols[0])
+    reference.numValidSamples = int(validCols[-1] - validCols[0] + 1)
+    print('Valid output from geo2rdr offsets: line={0}+{1}, sample={2}+{3}'.format(
+        reference.firstValidLine, reference.numValidLines,
+        reference.firstValidSample, reference.numValidSamples))
+    return reference
 
 
 
