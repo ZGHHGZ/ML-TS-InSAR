@@ -47,9 +47,14 @@ class ThreadRun(threading.Thread):
 
     def run(self):
         while True:
-            rr, opt_dict = self.queue.get()
-            os.system(rr)
-            self.queue.task_done()
+            rr, opt_dict, failures, failure_lock = self.queue.get()
+            try:
+                status = os.system(rr)
+                if status != 0:
+                    with failure_lock:
+                        failures.append((rr, status))
+            finally:
+                self.queue.task_done()
 
 
 def main(iargs=None):
@@ -60,6 +65,8 @@ def main(iargs=None):
     opt_dict['parallel']=inputArgs.processors
 
     queue = Queue()
+    failures = []
+    failure_lock = threading.Lock()
     #spawn a pool of threads, and pass them queue instance
     for i in range(opt_dict['parallel']):
         t = ThreadRun(queue)
@@ -72,10 +79,17 @@ def main(iargs=None):
         runs.append(line.strip())
     #for d in sorted(len(runs), key=operator.itemgetter('collectionName')):
     for rr in runs:
-        queue.put([rr, opt_dict])
+        queue.put([rr, opt_dict, failures, failure_lock])
 
     #wait on the queue until everything has been processed
     queue.join()
+    if failures:
+        details = '\n'.join(
+            'exit status {0}: {1}'.format(status, command)
+            for command, status in failures)
+        raise RuntimeError(
+            '{0} parallel command(s) failed:\n{1}'.format(
+                len(failures), details))
 
 if __name__ == "__main__":
 
