@@ -290,7 +290,7 @@ def main(iargs=None):
 
 
         ####Indices w.r.t reference
-        burstoffset, minBurst, maxBurst = reference.getCommonBurstLimits(secondary)
+        burstoffset, minBurst, maxBurst = ut.getCommonBurstLimits(reference, secondary)
         secondaryBurstStart = minBurst +  burstoffset
         secondaryBurstEnd = maxBurst
 
