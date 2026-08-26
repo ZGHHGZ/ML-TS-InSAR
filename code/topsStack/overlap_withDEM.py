@@ -3,6 +3,7 @@
 import numpy as np
 import argparse
 import os
+import sys
 import isce
 import isceobj
 import copy
@@ -43,15 +44,24 @@ def cmdLineParse(iargs=None):
 
 
 def multilook(intName, alks=5, rlks=15):
-    ######################修改了路径   本来仅为looks.py
-    cmd = '/home/jovyan/.local/envs/hyp3-isce2/lib/python3.11/site-packages/isce/applications/looks.py -i {0} -a {1} -r {2}'.format(intName,alks,rlks)
+    ###################### 运行时动态定位 looks.py（原硬编码路径已失效）
+    # looks.py 随 isce 包一起安装，路径随 env / python 版本变化，故从 isce.__file__ 推导
+    looks_script = os.path.join(os.path.dirname(isce.__file__), 'applications', 'looks.py')
+    cmd = '{0} {1} -i {2} -a {3} -r {4}'.format(sys.executable, looks_script, intName, alks, rlks)
     flag = os.system(cmd)
 
     if flag:
         raise Exception('Failed to multilook %s'%(intName))
 
     spl = os.path.splitext(intName)
-    return '{0}.{1}alks_{2}rlks{3}'.format(spl[0],alks,rlks,spl[1])
+    # looks.py 默认产出命名在不同 ISCE2 版本下可能为 <rlks>rlks_<alks>alks 或
+    # <alks>alks_<rlks>rlks，故实际探测磁盘上生成的文件，避免命名不一致导致下游找不到
+    cand1 = '{0}.{1}rlks_{2}alks{3}'.format(spl[0], rlks, alks, spl[1])
+    cand2 = '{0}.{1}alks_{2}rlks{3}'.format(spl[0], alks, rlks, spl[1])
+    for cand in (cand1, cand2):
+        if os.path.exists(cand):
+            return cand
+    raise Exception('multilook 输出未找到 (期望 {0} 或 {1})'.format(cand1, cand2))
 
 
 
