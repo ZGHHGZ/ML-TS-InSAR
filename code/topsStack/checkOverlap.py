@@ -74,7 +74,8 @@ def main(iargs=None):
 
             secondarySwathAll.append(secondarySwath)
 
-            burstoffset, minBurst, maxBurst = referenceSwath.getCommonBurstLimits(secondarySwath)
+            burstoffset, minBurst, maxBurst = ut.getCommonBurstLimits(
+                referenceSwath, secondarySwath)
             burstoffsetAll.append(burstoffset)
             minBurstAll.append(minBurst)
             maxBurstAll.append(maxBurst)
@@ -180,6 +181,5 @@ if __name__ == '__main__':
     '''
     # Main Driver
     main()
-
 
 
