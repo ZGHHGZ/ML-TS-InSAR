@@ -121,8 +121,13 @@ def get_bursts_in_iw(iw_dir: str) -> list:
     return bursts
 
 
-def find_nonzero_slc_window(vrt_path: str, block_rows: int = 64) -> tuple:
-    """Find the online-downloaded nonzero rectangle in a full burst VRT."""
+def find_nonzero_slc_window(vrt_path: str, block_rows: int = 64):
+    """Find the online-downloaded nonzero rectangle in a full burst VRT.
+
+    返回 (xoff, yoff, width, height, full_width, full_height)。
+    若该 burst 整幅为零（BBOX/稀疏 SAFE 未覆盖到它），返回 None，由调用方
+    跳过这个 burst，而不是中断整个流程。
+    """
     dataset = gdal.Open(vrt_path, gdal.GA_ReadOnly)
     if dataset is None:
         raise RuntimeError('无法打开 reference burst VRT: ' + vrt_path)
@@ -143,12 +148,16 @@ def find_nonzero_slc_window(vrt_path: str, block_rows: int = 64) -> tuple:
             max_y = max(max_y, y0 + int(rows.max()))
     dataset = None
     if max_x < min_x or max_y < min_y:
-        raise RuntimeError('reference burst 没有非零在线数据: ' + vrt_path)
+        return None
     return min_x, min_y, max_x - min_x + 1, max_y - min_y + 1, width, height
 
 
 def prepare_reference_crop_before_topo() -> None:
-    """Crop reference radar grids before topo so topo only covers downloaded data."""
+    """Crop reference radar grids before topo so topo only covers downloaded data.
+
+    稀疏/BBOX SAFE 里某些 burst 可能整幅为零（该 burst 没有在线数据）。这类
+    burst 直接跳过：从产品中移除并重编号，而不是抛异常中断整个流程。
+    """
     global REFERENCE_PRETOPO_CROP
     iw_list = get_product_iw_list('./reference')
     if not iw_list:
@@ -156,13 +165,20 @@ def prepare_reference_crop_before_topo() -> None:
     for IW in iw_list:
         iw_dir = os.path.join('./reference', IW)
         windows = {}
+        empty_bursts = []
         for vrt_path in sorted(glob.glob(os.path.join(iw_dir, 'burst_*.slc.vrt'))):
             match = re.search(r'burst_(\d+)\.slc\.vrt$', os.path.basename(vrt_path))
             if not match:
                 continue
             nn = match.group(1).zfill(2)
-            xoff, yoff, width, height, full_width, full_height = (
-                find_nonzero_slc_window(vrt_path))
+            window = find_nonzero_slc_window(vrt_path)
+            if window is None:
+                # 该 burst 整幅为零：本次下载没有覆盖到它，直接跳过。
+                empty_bursts.append(nn)
+                print('>>> topo 前检测 ' + IW + ' burst ' + nn +
+                      ' 没有在线非零数据，跳过该 burst')
+                continue
+            xoff, yoff, width, height, full_width, full_height = window
             windows[nn] = {
                 'xoff': xoff, 'yoff': yoff,
                 'width': width, 'height': height,
@@ -175,10 +191,24 @@ def prepare_reference_crop_before_topo() -> None:
                   ' width=' + str(width) + ' height=' + str(height) +
                   ' / full=' + str(full_width) + 'x' + str(full_height))
         if not windows:
+            print('>>> ' + IW + ' 所有 burst 都没有在线非零数据，停用该 IW')
+            REFERENCE_BURST_KEEP_MAP[IW] = {}
             prune_product_bursts('./reference', IW, {})
             continue
         ref_xml = os.path.join('./reference', IW + '.xml')
         add_original_burst_metadata(ref_xml, windows)
+        # 先删除被跳过的 burst 并重编号，后续所有字典/文件都使用新编号。
+        # 传入上一次的映射，保证重复调用时仍能追溯到解包后的原始编号。
+        renumbered = product_renumber_needed('./reference', IW, sorted(windows))
+        mapping = prune_and_renumber_product_bursts(
+            './reference', IW, sorted(windows),
+            REFERENCE_BURST_KEEP_MAP.get(IW))
+        REFERENCE_BURST_KEEP_MAP[IW] = mapping
+        if empty_bursts:
+            print('>>> ' + IW + ' 已跳过无在线数据 burst: ' +
+                  ', '.join(empty_bursts))
+        if renumbered:
+            windows = remap_burst_info(windows, mapping)
         # 此时 IW*.xml 仍是解包后的完整原始雷达网格。必须单独保留这份
         # 时间/距离原点；topo 后还会发生一次局部裁剪，不能让第二次读取的
         # sensingStart 覆盖真正的 native burst 原点。
@@ -187,12 +217,12 @@ def prepare_reference_crop_before_topo() -> None:
         REF_CROP_INFO[IW] = windows
     if not REF_CROP_INFO:
         raise RuntimeError('所有 reference IW 都没有在线下载的非零数据')
+    save_burst_keep_map()
     reference_date = get_product_acquisition_date('./reference')
     ACQUISITION_CROP_INFO[reference_date] = copy.deepcopy(REF_CROP_INFO)
     for IW, crop_info in REF_CROP_INFO.items():
         print('>>> topo 前裁剪 reference ' + IW + ' SLC VRT/XML...')
         crop_reference_burst_slc(IW, crop_info)
-        prune_product_bursts('./reference', IW, crop_info)
         update_iw_xml_geometry('./reference/' + IW + '.xml', crop_info)
     REFERENCE_PRETOPO_CROP = True
     print('>>> reference 已在 topo 前裁剪；run_01 topo 将只计算在线数据区域')
@@ -349,6 +379,22 @@ def _set_prop(parent, name, value):
             val.text = str(value)
 
 
+def _set_prop_deep(root, name, value) -> int:
+    """在整个产品中改写 name=name 的 property（含嵌套在 component 中的）。
+
+    IW*.xml 的 numberofbursts 位于 component[@name='instance'] 之下，不是根
+    节点的直接子节点，用 _set_prop 会静默失败并留下与实际 burst 数不一致的
+    值，导致 mergeBursts 按错误的 burst 数组装文件列表。
+    """
+    changed = 0
+    for prop in root.findall(".//property[@name='%s']" % name):
+        val = prop.find('value')
+        if val is not None:
+            val.text = str(value)
+            changed += 1
+    return changed
+
+
 def _get_prop(parent, name, default=None):
     """读取 parent 下第一个 name=name 的 property 的 value 文本。"""
     for prop in parent.findall("property[@name='%s']" % name):
@@ -434,12 +480,209 @@ def prune_product_bursts(product_root: str, IW: str, crop_info: dict) -> None:
         value = prop.find('value')
         if value is not None:
             value.text = str(kept_names)
-    _set_prop(root, 'numberofbursts', str(len(kept_names)))
+    _set_prop_deep(root, 'numberofbursts', str(len(kept_names)))
     tree.write(xml_path, pretty_print=True)
 
     removed = sorted(set(removed_names) | {'burst' + str(int(x)) for x in removed_numbers})
     if removed:
         print("    已从 " + xml_path + " 跳过未覆盖 burst: " + ", ".join(removed))
+
+
+def get_product_burst_numbers(product_root: str, IW: str) -> list:
+    """返回产品 IWn.xml 中记录的 burst 编号（两位字符串，按文档顺序）。"""
+    xml_path = os.path.join(product_root, IW + '.xml')
+    if not os.path.exists(xml_path):
+        return []
+    bursts_comp = etree.parse(xml_path).getroot().find(
+        ".//component[@name='bursts']")
+    if bursts_comp is None:
+        return []
+    numbers = []
+    for comp in bursts_comp:
+        name = comp.get('name') or ''
+        if (isinstance(comp.tag, str) and comp.tag == 'component'
+                and name.startswith('burst')):
+            numbers.append(name[5:].zfill(2))
+    return numbers
+
+
+def _remove_path(path: str) -> None:
+    if os.path.isdir(path):
+        shutil.rmtree(path)
+    elif os.path.exists(path) or os.path.islink(path):
+        os.remove(path)
+
+
+def renumber_numbered_files(directory: str, mapping: dict, prefixes=None,
+                            number_pattern: str = r'_(\d+)\.') -> None:
+    """把 directory 下按旧 burst 编号命名的文件重命名为新编号。
+
+    mapping 为 {新编号: 旧编号}。编号不在映射中的文件（被跳过的 burst）直接
+    删除；其余按编号升序移动，保证目标名一定已经腾空。
+    number_pattern 的捕获组必须只匹配 burst 编号，默认 "_NN." 不会误匹配
+    "IW3" 这类子带号。
+    """
+    if not os.path.isdir(directory) or not mapping:
+        return
+    inverse = {old: new for new, old in mapping.items()}
+    regex = re.compile(number_pattern)
+
+    def match_name(base):
+        if prefixes is not None and not base.startswith(prefixes):
+            return None
+        return regex.search(base)
+
+    for path in sorted(glob.glob(os.path.join(directory, '*'))):
+        found = match_name(os.path.basename(path))
+        if found and found.group(1).zfill(2) not in inverse:
+            _remove_path(path)
+
+    moves = []
+    for path in sorted(glob.glob(os.path.join(directory, '*'))):
+        base = os.path.basename(path)
+        found = match_name(base)
+        if not found:
+            continue
+        old_nn = found.group(1).zfill(2)
+        new_nn = inverse.get(old_nn)
+        if new_nn is None or new_nn == old_nn:
+            continue
+        new_base = base[:found.start(1)] + new_nn + base[found.end(1):]
+        moves.append((old_nn, path, os.path.join(directory, new_base)))
+    for _, src, dst in sorted(moves):
+        if os.path.exists(dst):
+            _remove_path(dst)
+        shutil.move(src, dst)
+
+
+def _set_image_file_name(xml_path: str, file_name: str) -> None:
+    """把 ISCE 图像 xml 中记录的 file_name 改写为新路径。"""
+    if not os.path.exists(xml_path):
+        return
+    tree = etree.parse(xml_path)
+    _set_prop(tree.getroot(), 'file_name', file_name)
+    tree.write(xml_path, pretty_print=True)
+
+
+def renumber_burst_sidecars(product_root: str, IW: str, mapping: dict) -> None:
+    """重命名后同步 burst_*.slc.xml 内部记录的图像绝对路径。"""
+    if not mapping:
+        return
+    iw_dir = os.path.join(product_root, IW)
+    for path in sorted(glob.glob(os.path.join(iw_dir, 'burst_*.slc.xml'))):
+        match = re.match(r'^burst_(\d+)\.slc\.xml$', os.path.basename(path))
+        if not match:
+            continue
+        nn = match.group(1).zfill(2)
+        _set_image_file_name(
+            path,
+            os.path.abspath(os.path.join(iw_dir, 'burst_' + nn + '.slc')))
+
+
+def rewrite_product_burst_numbers(product_root: str, IW: str,
+                                  mapping: dict) -> None:
+    """按 mapping（新编号 -> 旧编号）重写产品 IWn.xml 的 burst 组件。"""
+    xml_path = os.path.join(product_root, IW + '.xml')
+    if not os.path.exists(xml_path):
+        print("警告：未找到 " + xml_path + "，跳过 burst 重编号")
+        return
+    tree = etree.parse(xml_path)
+    root = tree.getroot()
+    bursts_comp = root.find(".//component[@name='bursts']")
+    if bursts_comp is None:
+        raise RuntimeError(xml_path + " 中未找到 bursts 组件，无法重编号")
+    inverse = {old: new for new, old in mapping.items()}
+    names = []
+    for comp in list(bursts_comp):
+        name = comp.get('name') or ''
+        if not (isinstance(comp.tag, str) and comp.tag == 'component'
+                and name.startswith('burst')):
+            continue
+        old_nn = name[5:].zfill(2)
+        new_nn = inverse.get(old_nn)
+        if new_nn is None:
+            bursts_comp.remove(comp)
+            continue
+        new_name = 'burst' + str(int(new_nn))
+        comp.set('name', new_name)
+        _set_prop(comp, 'burstnumber', str(int(new_nn)))
+        image = comp.find("component[@name='image']")
+        if image is not None:
+            for prop in image.findall("property[@name='file_name']"):
+                value = prop.find('value')
+                if value is not None and value.text:
+                    value.text = re.sub(r'burst_\d+\.',
+                                        'burst_' + new_nn + '.',
+                                        value.text.strip())
+        names.append(new_name)
+    if not names:
+        raise RuntimeError(xml_path + " 重编号后没有任何 burst")
+    for prop in bursts_comp.findall("property[@name='name']"):
+        value = prop.find('value')
+        if value is not None:
+            value.text = str(names)
+    _set_prop_deep(root, 'numberofbursts', str(len(names)))
+    tree.write(xml_path, pretty_print=True)
+
+
+def prune_and_renumber_product_bursts(product_root: str, IW: str,
+                                      keep_numbers: list,
+                                      previous_map: dict = None) -> dict:
+    """只保留 keep_numbers（当前编号）中的 burst，并从 1 起重新连续编号。
+
+    ISCE 的 geo2rdr / resample / mergeBursts / generateIgram 都依赖
+    burstNumber == 列表下标 + 1 来定位几何与 SLC 文件，因此跳过中间某个
+    burst 后必须重编号，不能留下编号空洞，否则 merge 会因找不到
+    burst_03.slc 而失败。
+
+    返回 {新编号: 原编号}（previous_map 给出时映射回最初的解包编号）；
+    keep_numbers 为空时停用整个 IW 并返回 {}。
+    """
+    existing = get_product_burst_numbers(product_root, IW)
+    keep_set = {str(n).zfill(2) for n in keep_numbers}
+    unknown = sorted(keep_set - set(existing))
+    if unknown:
+        raise RuntimeError(os.path.join(product_root, IW) +
+                           " 中不存在的 burst: " + ", ".join(unknown))
+    keep = [nn for nn in existing if nn in keep_set]
+    if not keep:
+        prune_product_bursts(product_root, IW, {})
+        return {}
+    mapping = {}
+    for index, old_nn in enumerate(keep):
+        new_nn = '%02d' % (index + 1)
+        mapping[new_nn] = previous_map.get(old_nn, old_nn) if previous_map else old_nn
+    if keep == existing:
+        # 没有编号空洞：不触碰磁盘与 xml，保持既有行为。
+        return mapping
+    renumber_numbered_files(os.path.join(product_root, IW), mapping,
+                            prefixes='burst_')
+    renumber_burst_sidecars(product_root, IW, mapping)
+    rewrite_product_burst_numbers(product_root, IW, mapping)
+    print("    已重编号 " + os.path.join(product_root, IW) + ": " +
+          ", ".join(new + '<-' + old
+                    for new, old in sorted(mapping.items()) if new != old))
+    return mapping
+
+
+def product_renumber_needed(product_root: str, IW: str,
+                            keep_numbers: list) -> bool:
+    """判断保留 keep_numbers 后磁盘上是否真的会发生重编号。
+
+    不能用 mapping 的键值是否相等来判断：映射里保存的是解包后的原始编号，
+    重复调用时它天然不等于新编号，而此时磁盘上并没有再次重命名。
+    """
+    existing = get_product_burst_numbers(product_root, IW)
+    keep_set = {str(n).zfill(2) for n in keep_numbers}
+    return [nn for nn in existing if nn in keep_set] != existing
+
+
+def remap_burst_info(info: dict, mapping: dict) -> dict:
+    """把按旧编号组织的 burst 信息字典改为按新编号组织。"""
+    if not info:
+        return info
+    return {new: info[old] for new, old in sorted(mapping.items())
+            if old in info}
 
 
 def add_original_burst_metadata(xml_path: str, crop_info: dict) -> None:
@@ -679,6 +922,66 @@ def save_crop_metadata(crop_info_by_iw: dict, acquisitions: dict,
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
     print(">>> 已保存各日期 TOPS 原始相位参考信息: " + path)
+
+
+def save_burst_keep_map() -> None:
+    """保存 reference 最终的 burst 保留/重编号映射，供从影像对齐与复查。"""
+    try:
+        with open(REFERENCE_BURST_MAP_PATH, 'w', encoding='utf-8') as f:
+            json.dump({'version': 1,
+                       'description': 'reference 保留的 burst，键为最终编号，值为解包后的原始编号',
+                       'reference_burst_keep': REFERENCE_BURST_KEEP_MAP},
+                      f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print('警告：写入 burst 编号映射失败: ' + str(e))
+
+
+def load_burst_keep_map() -> dict:
+    if not os.path.exists(REFERENCE_BURST_MAP_PATH):
+        return {}
+    try:
+        with open(REFERENCE_BURST_MAP_PATH, 'r', encoding='utf-8') as f:
+            payload = json.load(f)
+        return payload.get('reference_burst_keep', {}) or {}
+    except Exception as e:
+        print('警告：读取 burst 编号映射失败: ' + str(e))
+        return {}
+
+
+def align_secondary_bursts() -> None:
+    """让所有 secondary 保留与 reference 完全相同的 burst 集合与编号。
+
+    reference 跳过无数据 burst 后编号会重排，secondary 必须同步删除同样的
+    burst 并使用相同编号，否则 geo2rdr/resample 会把主辅 burst 错配
+    （方位时间差整整一个 burst）。secondary 仍然保持原始雷达网格，不做裁剪。
+    """
+    if not REFERENCE_BURST_KEEP_MAP:
+        return
+    sec_dirs = sorted(glob.glob('./secondarys/*/'))
+    if not sec_dirs:
+        print("警告：未检测到 secondarys/* 目录")
+        return
+    for sec_dir in sec_dirs:
+        sec_date = os.path.basename(os.path.normpath(sec_dir))
+        notes = []
+        for IW in get_product_iw_list(sec_dir):
+            mapping = REFERENCE_BURST_KEEP_MAP.get(IW)
+            if not mapping:
+                prune_product_bursts(sec_dir, IW, {})
+                continue
+            keep = [mapping[new] for new in sorted(mapping)]
+            try:
+                prune_and_renumber_product_bursts(sec_dir, IW, keep)
+            except RuntimeError as e:
+                raise RuntimeError("secondary " + sec_date + " " + IW +
+                                   " 无法与 reference 的 burst 对齐: " + str(e))
+            renumbered = [new + '<-' + old
+                          for new, old in sorted(mapping.items())
+                          if new != old]
+            if renumbered:
+                notes.append(IW + ': ' + ', '.join(renumbered))
+        print(">>> secondary [" + sec_date + "] burst 已与 reference 对齐" +
+              ("；重编号 " + "; ".join(notes) if notes else "（无需重编号）"))
 
 
 def build_reference_native_phase_info(final_crop_info: dict) -> dict:
@@ -992,6 +1295,13 @@ ACQUISITION_CROP_INFO = {}
 REFERENCE_PRETOPO_CROP = False
 # True 表示提供了完整经纬度框，且已在 topo 后完成二次裁剪。
 REFERENCE_POSTTOPO_CROP = False
+# reference 各 IW 最终保留的 burst 映射 {IW: {最终编号: 解包后的原始编号}}。
+# 空字典表示该 IW 被停用。secondary 必须按同一映射剪裁并重编号。
+REFERENCE_BURST_KEEP_MAP = {}
+REFERENCE_BURST_MAP_PATH = './reference/burst_keep_map.json'
+
+# 上次运行留下的 burst 保留映射；run_01 会按磁盘上的 VRT 重新计算并覆盖它。
+REFERENCE_BURST_KEEP_MAP.update(load_burst_keep_map())
 
 # 动态发现 run_files 下所有步骤（按名称匹配，不依赖硬编码编号；切换 coregistration 方式时步骤数会变）
 run = sorted([os.path.basename(p) for p in glob.glob('./run_files/run_*')])
@@ -1096,6 +1406,7 @@ for i in range(len(run)):
             # topo 前的 REF_CROP_INFO 是非零数据窗；从这里起必须换成
             # 以 topo 产生的 lat/lon 为基准计算的二次裁剪窗口。
             REF_CROP_INFO.clear()
+            REFERENCE_BURST_KEEP_MAP.clear()
             iw_list = get_iw_list()
             if len(iw_list) == 0:
                 print("警告：geom_reference 下未检测到 IW* 目录，跳过裁剪")
@@ -1105,6 +1416,7 @@ for i in range(len(run)):
                 if not crop_info:
                     # 整个 IW 不覆盖目标范围：从 reference 与 geometry 中停用，
                     # 使后续 getSwathList/merge 不会再次发现并处理它。
+                    REFERENCE_BURST_KEEP_MAP[IW] = {}
                     prune_product_bursts('./reference', IW, {})
                     skipped_geom = os.path.join('./geom_reference', IW)
                     if os.path.isdir(skipped_geom):
@@ -1128,12 +1440,39 @@ for i in range(len(run)):
             reference_date = get_product_acquisition_date('./reference')
             ACQUISITION_CROP_INFO[reference_date] = copy.deepcopy(REF_CROP_INFO)
             print(">>> 已保存 reference 日期原始载波网格: " + reference_date)
-            for IW, crop_info in REF_CROP_INFO.items():
+            for IW, crop_info in list(REF_CROP_INFO.items()):
                 print(">>> 正在裁剪 IW [" + IW + "] 的 geometry...")
                 apply_iw_geom_crop(IW, crop_info)
+                # 未覆盖目标范围的 burst 必须从产品中移除并重编号：
+                # burstNumber 一旦出现空洞，mergeBursts / generateIgram 按
+                # burstNumber 组装文件名时会找不到对应的 SLC 与 offset 文件。
+                renumbered = product_renumber_needed(
+                    './reference', IW, sorted(crop_info))
+                mapping = prune_and_renumber_product_bursts(
+                    './reference', IW, sorted(crop_info),
+                    REFERENCE_BURST_KEEP_MAP.get(IW))
+                REFERENCE_BURST_KEEP_MAP[IW] = mapping
+                if renumbered:
+                    # geometry（lat_02.rdr 等）与独立 KML/窗口文本都按旧编号命名，
+                    # 必须跟着一起重编号。
+                    renumber_numbered_files(
+                        os.path.join('./geom_reference', IW), mapping)
+                    renumber_numbered_files(
+                        './geom_reference', mapping,
+                        prefixes=('crop_' + IW + '_',
+                                  'crop_extent_' + IW + '_'))
+                    crop_info = remap_burst_info(crop_info, mapping)
+                    REF_CROP_INFO[IW] = crop_info
+                    REFERENCE_FULL_GRID_INFO[IW] = remap_burst_info(
+                        REFERENCE_FULL_GRID_INFO.get(IW, {}), mapping)
+                    REFERENCE_NATIVE_PHASE_INFO[IW] = remap_burst_info(
+                        REFERENCE_NATIVE_PHASE_INFO.get(IW, {}), mapping)
+                    acq_info = ACQUISITION_CROP_INFO.get(reference_date)
+                    if acq_info and IW in acq_info:
+                        acq_info[IW] = remap_burst_info(acq_info[IW], mapping)
                 print(">>> 正在更新 IW [" + IW + "] 的 reference SLC VRT...")
                 crop_reference_burst_slc(IW, crop_info)
-                prune_product_bursts('./reference', IW, crop_info)
+            save_burst_keep_map()
             if REF_CROP_INFO:
                 # 独立 KML 已在各 burst 计算窗口时写出。这里只汇总它们，
                 # 不使用跨 IW 对齐后扩展的物理范围覆盖原始裁剪窗口。
@@ -1163,6 +1502,9 @@ for i in range(len(run)):
                             prune_product_bursts(sec_dir, IW, {})
                     print(">>> secondary [" + sec_date +
                           "] 保持原始 VRT/XML，不执行预裁剪")
+                # reference 可能跳过了无覆盖的 burst 并重编号，secondary 必须
+                # 同步，否则主辅 burst 会错配（方位时间相差整整一个 burst）。
+                align_secondary_bursts()
 
 
         # ---------------- 步骤 run_03：只更新 reference 的 IWn.xml 几何 ----------------
@@ -1183,3 +1525,11 @@ for i in range(len(run)):
                             update_iw_xml_geometry(ref_xml, ci)
                     else:
                         print("    跳过 " + ref_xml + "（不存在）")
+
+    else:
+        # ---------------- 未提供经纬度框：只在 run_02 对齐 secondary 的 burst ----------------
+        # 此时 reference 已按「在线非零数据窗」跳过无数据 burst 并重编号，
+        # secondary 必须删除同样的 burst 并使用相同编号。secondary 本身仍
+        # 保持完整原始网格，不做任何裁剪。
+        if runstep == 'run_02_unpack_secondary_slc':
+            align_secondary_bursts()
